@@ -7,8 +7,11 @@ import {
   Building2,
   ChevronRight,
   LogOut,
+  Pencil,
+  UserCheck,
 } from "lucide-react";
 import { getCurrentUser, signOut } from "@/lib/actions/auth";
+import Image from "next/image";
 
 export const dynamic = "force-dynamic";
 
@@ -34,28 +37,73 @@ export default async function ProfilePage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl font-black text-white">Profile</h1>
+        {currentUser && (
+          <Link
+            href="/profile/edit"
+            className="flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 px-4 py-1.5 text-xs font-semibold text-purple-300 hover:bg-purple-500/20 hover:text-white transition-all"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit Profile
+          </Link>
+        )}
       </div>
 
-      <Card>
-        <CardContent className="flex items-center gap-4 p-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-lime-400 to-emerald-500">
-            <User className="h-8 w-8 text-black" />
+      <Card className="overflow-hidden border border-white/10 bg-zinc-900/60">
+        <CardContent className="flex items-center gap-4 p-5">
+          <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-gradient-to-br from-purple-500 to-pink-500 shadow-md">
+            {currentUser?.avatar_url ? (
+              <Image
+                src={currentUser.avatar_url}
+                alt={currentUser.name}
+                fill
+                className="object-cover"
+              />
+            ) : (
+              <User className="h-8 w-8 text-white" />
+            )}
           </div>
-          <div>
+          <div className="flex-1">
             <h2 className="text-lg font-bold text-white">
               {currentUser ? currentUser.name : "Guest User"}
             </h2>
             <p className="text-sm text-white/50">
               {currentUser ? currentUser.email : "Not signed in"}
             </p>
-            <Badge variant="lime" className="mt-1 uppercase">
-              {currentUser ? currentUser.role : "Guest"}
-            </Badge>
+            <div className="mt-1 flex items-center gap-2">
+              <Badge variant="lime" className="uppercase">
+                {currentUser ? currentUser.role : "Guest"}
+              </Badge>
+              {currentUser?.phone && (
+                <span className="text-xs text-white/40">
+                  {currentUser.phone}
+                </span>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Profile Quick Access Card */}
+      {currentUser && (
+        <Link href="/profile/edit">
+          <Card className="transition-all border border-purple-500/20 bg-purple-500/5 hover:border-purple-500/40 hover:bg-purple-500/10">
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/20 text-purple-300">
+                <UserCheck className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-white">Edit Profile Details</p>
+                <p className="text-xs text-white/50">
+                  Update photo, name, birthday & gender
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-white/30" />
+            </CardContent>
+          </Card>
+        </Link>
+      )}
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold text-white/40">Staff & Partner</h3>

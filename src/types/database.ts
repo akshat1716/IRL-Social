@@ -18,6 +18,9 @@ export interface User {
   phone: string;
   avatar_url: string | null;
   role: UserRole;
+  birthday?: string | null;
+  gender?: string | null;
+  anniversary?: string | null;
 }
 
 export interface Venue {
