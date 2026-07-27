@@ -1,60 +1,95 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-
+import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import Image from "next/image";
 
 export default function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") ?? "/";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+
+  const handleModeSwitch = (newMode: "signin" | "signup") => {
+    setMode(newMode);
+    setError(null);
+    setSuccessMessage(null);
+    setPassword("");
+    setConfirmPassword("");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
-    const supabase = createClient();
+    setSuccessMessage(null);
 
     if (mode === "signup") {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name: email.split("@")[0] },
-        },
-      });
-      if (signUpError) {
-        setError(signUpError.message);
-        setLoading(false);
-        return;
-      }
-    } else {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (signInError) {
-        setError(signInError.message);
+      if (password !== confirmPassword) {
+        setError("Passwords do not match. Please retype your password.");
         setLoading(false);
         return;
       }
     }
 
-    router.push(redirect);
-    router.refresh();
+    const supabase = createClient();
+
+    try {
+      if (mode === "signup") {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { name: email.split("@")[0] },
+          },
+        });
+
+        if (signUpError) {
+          setError(signUpError.message);
+          setLoading(false);
+          return;
+        }
+
+        if (!data.session) {
+          setSuccessMessage(
+            "Account created! Please check your email to confirm, or sign in now."
+          );
+          setMode("signin");
+          setLoading(false);
+          return;
+        }
+      } else {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (signInError) {
+          setError(signInError.message);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Hard redirect to clear session state & pass cookies directly
+      window.location.href = redirect;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "An unexpected error occurred.";
+      setError(message);
+      setLoading(false);
+    }
   };
 
   return (
@@ -94,6 +129,13 @@ export default function LoginForm() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {successMessage && (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-400">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>{successMessage}</span>
+          </div>
+        )}
+
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -105,6 +147,7 @@ export default function LoginForm() {
             required
           />
         </div>
+
         <div className="space-y-2">
           <Label htmlFor="password">Password</Label>
           <Input
@@ -118,11 +161,30 @@ export default function LoginForm() {
           />
         </div>
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {mode === "signup" && (
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">Retype Password</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={6}
+            />
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+            {error}
+          </div>
+        )}
 
         <Button className="w-full" type="submit" disabled={loading}>
           {loading
-            ? "Loading..."
+            ? "Redirecting..."
             : mode === "signin"
               ? "Sign In"
               : "Create Account"}
@@ -131,7 +193,7 @@ export default function LoginForm() {
 
       <button
         type="button"
-        onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+        onClick={() => handleModeSwitch(mode === "signin" ? "signup" : "signin")}
         className="text-center text-sm text-white/50 hover:text-white"
       >
         {mode === "signin"
