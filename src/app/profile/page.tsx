@@ -8,7 +8,6 @@ import {
   ChevronRight,
   LogOut,
   Pencil,
-  UserCheck,
 } from "lucide-react";
 import { getCurrentUser, signOut } from "@/lib/actions/auth";
 import Image from "next/image";
@@ -84,26 +83,6 @@ export default async function ProfilePage() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Edit Profile Quick Access Card */}
-      {currentUser && (
-        <Link href="/profile/edit">
-          <Card className="transition-all border border-purple-500/20 bg-purple-500/5 hover:border-purple-500/40 hover:bg-purple-500/10">
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/20 text-purple-300">
-                <UserCheck className="h-5 w-5" />
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold text-white">Edit Profile Details</p>
-                <p className="text-xs text-white/50">
-                  Update photo, name, birthday & gender
-                </p>
-              </div>
-              <ChevronRight className="h-5 w-5 text-white/30" />
-            </CardContent>
-          </Card>
-        </Link>
-      )}
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold text-white/40">Staff & Partner</h3>

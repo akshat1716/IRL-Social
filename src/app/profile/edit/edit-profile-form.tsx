@@ -51,12 +51,11 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Calculate completed steps out of 4 (Name, Phone, Email, Birthday)
+  // Calculate completed steps out of 3 for Basic Information (Username, Phone, Email)
   const stepsDone = [
     Boolean(name.trim()),
     Boolean(phone.trim()),
     Boolean(email.trim()),
-    Boolean(birthday.trim()),
   ].filter(Boolean).length;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -123,11 +122,11 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
             <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               <div
                 className="h-full bg-purple-400 transition-all duration-300"
-                style={{ width: `${(stepsDone / 4) * 100}%` }}
+                style={{ width: `${(stepsDone / 3) * 100}%` }}
               />
             </div>
             <p className="text-xs font-medium text-purple-300">
-              {stepsDone} / 4 steps done
+              {stepsDone} / 3 steps done
             </p>
           </div>
 
@@ -192,15 +191,15 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
             )}
           </div>
 
-          {/* Name Field */}
+          {/* Username Field */}
           <div className="space-y-2">
             <Label htmlFor="name" className="text-sm font-medium text-white/80">
-              Name
+              Username
             </Label>
             <Input
               id="name"
               type="text"
-              placeholder="Enter your name"
+              placeholder="Enter your username"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="rounded-2xl border-white/10 bg-zinc-950/80 py-3 text-white placeholder:text-white/30 focus:border-purple-400"
@@ -241,21 +240,6 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
               required
             />
           </div>
-
-          {/* Birthday Field */}
-          <div className="space-y-2">
-            <Label htmlFor="birthday" className="text-sm font-medium text-white/80">
-              Birthday
-            </Label>
-            <Input
-              id="birthday"
-              type="text"
-              placeholder="DD / MM / YY"
-              value={birthday}
-              onChange={(e) => setBirthday(e.target.value)}
-              className="rounded-2xl border-white/10 bg-zinc-950/80 py-3 text-white placeholder:text-white/30 focus:border-purple-400"
-            />
-          </div>
         </div>
 
         {/* Card 2: Additional details (optional) */}
@@ -294,6 +278,21 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
               </select>
               <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
             </div>
+          </div>
+
+          {/* DOB Field */}
+          <div className="space-y-2">
+            <Label htmlFor="birthday" className="text-sm font-medium text-white/80">
+              DOB
+            </Label>
+            <Input
+              id="birthday"
+              type="text"
+              placeholder="DD / MM / YY"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
+              className="rounded-2xl border-white/10 bg-zinc-950/80 py-3 text-white placeholder:text-white/30 focus:border-purple-400"
+            />
           </div>
 
           {/* Anniversary Field */}
