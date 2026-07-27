@@ -42,7 +42,6 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
   const [phone] = useState(initialUser.phone || "+91 8545079630");
   const [birthday, setBirthday] = useState(initialUser.birthday || "");
   const [gender, setGender] = useState(initialUser.gender || "");
-  const [anniversary, setAnniversary] = useState(initialUser.anniversary || "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(
     initialUser.avatar_url || null
   );
@@ -70,7 +69,6 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
       avatar_url: avatarUrl,
       birthday,
       gender,
-      anniversary,
     });
 
     setLoading(false);
@@ -242,10 +240,10 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
           </div>
         </div>
 
-        {/* Card 2: Additional details (optional) */}
+        {/* Card 2: Additional details */}
         <div className="rounded-3xl border border-white/10 bg-zinc-900/70 p-5 space-y-5">
           <h2 className="text-base font-bold text-white">
-            Additional details (optional)
+            Additional details
           </h2>
 
           {/* Gender Select Dropdown */}
@@ -291,21 +289,6 @@ export function EditProfileForm({ initialUser }: EditProfileFormProps) {
               placeholder="DD / MM / YY"
               value={birthday}
               onChange={(e) => setBirthday(e.target.value)}
-              className="rounded-2xl border-white/10 bg-zinc-950/80 py-3 text-white placeholder:text-white/30 focus:border-purple-400"
-            />
-          </div>
-
-          {/* Anniversary Field */}
-          <div className="space-y-2">
-            <Label htmlFor="anniversary" className="text-sm font-medium text-white/80">
-              Anniversary
-            </Label>
-            <Input
-              id="anniversary"
-              type="text"
-              placeholder="DD / MM / YY"
-              value={anniversary}
-              onChange={(e) => setAnniversary(e.target.value)}
               className="rounded-2xl border-white/10 bg-zinc-950/80 py-3 text-white placeholder:text-white/30 focus:border-purple-400"
             />
           </div>
