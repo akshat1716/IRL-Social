@@ -8,6 +8,8 @@ import { Input, Label } from "@/components/ui/input";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import Image from "next/image";
+
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -65,13 +67,30 @@ export default function LoginForm() {
         Back to app
       </Link>
 
-      <div>
-        <h1 className="text-2xl font-black text-white">
-          {mode === "signin" ? "Welcome back" : "Join IRL"}
-        </h1>
-        <p className="text-sm text-white/50">
-          Sign in to access passes, partner tools, and scanner
-        </p>
+      <div className="flex flex-col items-center text-center space-y-3">
+        <div className="relative group">
+          {/* Ambient colorful glow backdrop */}
+          <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 opacity-70 blur-lg transition duration-500 group-hover:opacity-100" />
+          <div className="relative h-20 w-20 overflow-hidden rounded-2xl border border-white/20 bg-black p-1 shadow-2xl">
+            <Image
+              src="/logo.jpg"
+              alt="IRL Logo"
+              width={80}
+              height={80}
+              className="h-full w-full object-cover rounded-xl"
+              priority
+            />
+          </div>
+        </div>
+
+        <div>
+          <h1 className="text-2xl font-black text-white tracking-tight">
+            {mode === "signin" ? "Welcome back to IRL" : "Join the IRL Squad"}
+          </h1>
+          <p className="text-sm text-white/50 mt-1">
+            Sign in to access passes, partner tools, and scanner
+          </p>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

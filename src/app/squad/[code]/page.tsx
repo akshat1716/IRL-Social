@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getSquadByCode, joinSquad } from "@/lib/actions/tickets";
 import { formatCurrency } from "@/lib/utils";
-import { Users, Loader2, Check } from "lucide-react";
+import { Loader2, Check } from "lucide-react";
 import { useEffect, useState } from "react";
+
+import Image from "next/image";
 
 export default function SquadJoinPage() {
   const params = useParams();
@@ -60,12 +62,25 @@ export default function SquadJoinPage() {
 
   return (
     <div className="space-y-6 py-8">
-      <div className="text-center">
-        <Users className="mx-auto h-12 w-12 text-violet-400" />
-        <h1 className="mt-4 text-2xl font-black text-white">Join the Squad</h1>
-        <p className="text-sm text-white/50">
-          Your friend invited you to split the bill
-        </p>
+      <div className="flex flex-col items-center text-center space-y-3">
+        <div className="relative group">
+          <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 opacity-70 blur-md" />
+          <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-white/20 bg-black p-0.5 shadow-xl">
+            <Image
+              src="/logo.jpg"
+              alt="IRL Logo"
+              width={64}
+              height={64}
+              className="h-full w-full object-cover rounded-xl"
+            />
+          </div>
+        </div>
+        <div>
+          <h1 className="text-2xl font-black text-white">Join the Squad</h1>
+          <p className="text-sm text-white/50">
+            Your friend invited you to split the bill on IRL
+          </p>
+        </div>
       </div>
 
       <Card>

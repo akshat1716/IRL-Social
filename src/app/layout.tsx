@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { QueryProvider } from "@/providers/query-provider";
 import { BottomNav } from "@/components/layout/bottom-nav";
+import { TopHeader } from "@/components/layout/top-header";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -19,6 +20,10 @@ export const metadata: Metadata = {
   title: "IRL — Social & Event Platform",
   description:
     "Discover daytime socials and nightlife experiences. Run clubs, coffee mixers, clubbing, karaoke, and more.",
+  icons: {
+    icon: "/logo.jpg",
+    apple: "/logo.jpg",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -45,7 +50,8 @@ export default function RootLayout({
       >
         <QueryProvider>
           <div className="mx-auto min-h-screen max-w-lg">
-            <main className="px-4 pb-24 pt-safe-top pt-6">{children}</main>
+            <TopHeader />
+            <main className="px-4 pb-24">{children}</main>
             <BottomNav />
           </div>
         </QueryProvider>
@@ -53,3 +59,4 @@ export default function RootLayout({
     </html>
   );
 }
+

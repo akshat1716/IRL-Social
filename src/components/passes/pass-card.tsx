@@ -8,6 +8,8 @@ import { formatCurrency, formatDate, formatTime } from "@/lib/utils";
 import type { Pass } from "@/types/database";
 import { MapPin, Clock, Wine } from "lucide-react";
 
+import Image from "next/image";
+
 interface PassCardProps {
   pass: Pass;
   showVoucher?: boolean;
@@ -31,17 +33,20 @@ export function PassCard({ pass, showVoucher = false }: PassCardProps) {
       />
 
       <CardContent className="space-y-4 p-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="font-bold text-white">{pass.event?.title}</h3>
-            <Badge
-              variant={pass.event?.is_daytime ? "lime" : "violet"}
-              className="mt-1"
-            >
-              {pass.event?.category
-                ? categoryLabels[pass.event.category]
-                : "Event"}
-            </Badge>
+        {/* Pass Header with Official Logo */}
+        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="relative h-6 w-6 overflow-hidden rounded-md border border-white/20 bg-black">
+              <Image
+                src="/logo.jpg"
+                alt="IRL"
+                fill
+                className="object-cover"
+              />
+            </div>
+            <span className="text-[11px] font-black tracking-widest text-white/80 uppercase">
+              IRL Pass
+            </span>
           </div>
           <Badge
             variant={
@@ -58,6 +63,20 @@ export function PassCard({ pass, showVoucher = false }: PassCardProps) {
                 ? "Checked In"
                 : "Cancelled"}
           </Badge>
+        </div>
+
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="font-bold text-white text-lg">{pass.event?.title}</h3>
+            <Badge
+              variant={pass.event?.is_daytime ? "lime" : "violet"}
+              className="mt-1"
+            >
+              {pass.event?.category
+                ? categoryLabels[pass.event.category]
+                : "Event"}
+            </Badge>
+          </div>
         </div>
 
         <div className="space-y-1 text-sm text-white/60">
