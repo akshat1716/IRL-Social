@@ -274,11 +274,30 @@ export function PaymentSelector({
   const [cardName, setCardName] = useState("");
 
   const upiId = "irlsocial@okicici";
-  const upiPayUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(
-    "IRL Social"
-  )}&am=${amount}&tn=${encodeURIComponent(
-    `Pass for ${eventTitle}`
-  )}&cu=INR`;
+  const getAppUpiUrl = (appId: string) => {
+    const encodedTitle = encodeURIComponent(`Pass for ${eventTitle}`);
+    const encodedName = encodeURIComponent("IRL Social");
+    const params = `pa=${upiId}&pn=${encodedName}&am=${amount}&tn=${encodedTitle}&cu=INR`;
+
+    switch (appId) {
+      case "paytm":
+        return `paytmmp://pay?${params}`;
+      case "phonepe":
+        return `phonepe://pay?${params}`;
+      case "gpay":
+        return `tez://upi/pay?${params}`;
+      case "bhim":
+        return `bhim://pay?${params}`;
+      case "amazonpay":
+        return `amazonpay://upi/pay?${params}`;
+      case "cred":
+        return `cred://pay?${params}`;
+      default:
+        return `upi://pay?${params}`;
+    }
+  };
+
+  const upiPayUrl = getAppUpiUrl(selectedUpiApp);
 
   const handleCopyUpi = () => {
     navigator.clipboard.writeText(upiId);
@@ -311,7 +330,8 @@ export function PaymentSelector({
     if (type === "upi" && typeof window !== "undefined") {
       const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       if (isMobile) {
-        window.location.href = upiPayUrl;
+        const targetUrl = getAppUpiUrl(selectedUpiApp);
+        window.location.href = targetUrl;
       }
     }
 

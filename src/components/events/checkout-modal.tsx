@@ -207,16 +207,20 @@ export function CheckoutModal({
             {selectedTier && (
               <div className="space-y-4 border-t border-white/10 pt-4">
                 {purchaseMutation.isError && (
-                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center text-xs text-red-400">
-                    <p>{purchaseMutation.error.message}</p>
-                    {purchaseMutation.error.message.includes("Authentication required") && (
-                      <a
-                        href={`/login?redirect=/events/${event.id}`}
-                        className="mt-1.5 inline-block font-bold text-lime-400 underline hover:text-lime-300"
-                      >
-                        Sign In Now →
-                      </a>
-                    )}
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center text-xs text-red-400 space-y-2">
+                    <p className="font-bold">
+                      {purchaseMutation.error.message.includes("Server Components") ||
+                      purchaseMutation.error.message.includes("sign in") ||
+                      purchaseMutation.error.message.includes("Authentication")
+                        ? "Please sign in to complete your pass booking."
+                        : purchaseMutation.error.message}
+                    </p>
+                    <a
+                      href={`/login?redirect=/events/${event.id}`}
+                      className="inline-block rounded-lg bg-lime-400 px-3 py-1.5 font-bold text-black hover:bg-lime-300 transition-all"
+                    >
+                      Sign In to Continue →
+                    </a>
                   </div>
                 )}
 
