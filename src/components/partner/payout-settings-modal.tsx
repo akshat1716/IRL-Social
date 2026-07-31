@@ -13,7 +13,7 @@ import {
   updatePayoutDetails,
   type PayoutDetails,
 } from "@/lib/actions/auth";
-import { Building2, CreditCard, Check, Sparkles, Lock } from "lucide-react";
+import { Building2, Check, Sparkles, Lock } from "lucide-react";
 
 interface PayoutSettingsModalProps {
   open: boolean;

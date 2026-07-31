@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { createEvent, getVenues } from "@/lib/actions/events";
 import { getPayoutDetails, type PayoutDetails } from "@/lib/actions/auth";
 import type { EventCategory, Venue } from "@/types/database";
-import { ArrowLeft, Plus, Trash2, Building2, Lock } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Building2 } from "lucide-react";
 import { useEffect } from "react";
 
 interface TierForm {

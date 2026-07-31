@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { requestPartnerAccess } from "@/lib/actions/auth";
-import { ShieldAlert, Sparkles, CheckCircle2, ArrowRight } from "lucide-react";
+import { Sparkles, CheckCircle2, ArrowRight } from "lucide-react";
 
 export function HostAccessGatekeeper({ userName }: { userName: string }) {
   const router = useRouter();
