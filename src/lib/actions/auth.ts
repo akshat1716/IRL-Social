@@ -92,3 +92,105 @@ export async function updateProfile(formData: {
   revalidatePath("/profile/edit");
   return { success: true };
 }
+
+export async function requestPartnerAccess() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Authentication required" };
+  }
+
+  // Upgrade user metadata role
+  const { error: updateError } = await supabase.auth.updateUser({
+    data: { role: "partner" },
+  });
+
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  // Update profiles table
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("profiles") as any).upsert({
+      id: user.id,
+      role: "partner",
+      updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("Profile role update skipped:", e);
+  }
+
+  revalidatePath("/partner");
+  revalidatePath("/profile");
+  return { success: true };
+}
+
+export interface PayoutDetails {
+  upi_id: string;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  ifsc_code: string;
+  payout_preference: "upi" | "bank";
+}
+
+export async function getPayoutDetails(): Promise<PayoutDetails> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      upi_id: "",
+      bank_name: "",
+      account_name: "",
+      account_number: "",
+      ifsc_code: "",
+      payout_preference: "upi",
+    };
+  }
+
+  const meta = user.user_metadata || {};
+  return {
+    upi_id: meta.payout_upi_id || "",
+    bank_name: meta.payout_bank_name || "",
+    account_name: meta.payout_account_name || "",
+    account_number: meta.payout_account_number || "",
+    ifsc_code: meta.payout_ifsc_code || "",
+    payout_preference: meta.payout_preference || "upi",
+  };
+}
+
+export async function updatePayoutDetails(details: PayoutDetails) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Authentication required" };
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    data: {
+      payout_upi_id: details.upi_id,
+      payout_bank_name: details.bank_name,
+      payout_account_name: details.account_name,
+      payout_account_number: details.account_number,
+      payout_ifsc_code: details.ifsc_code,
+      payout_preference: details.payout_preference,
+    },
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/partner");
+  return { success: true };
+}

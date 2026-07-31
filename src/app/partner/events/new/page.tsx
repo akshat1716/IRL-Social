@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea, Select } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { createEvent, getVenues } from "@/lib/actions/events";
+import { getPayoutDetails, type PayoutDetails } from "@/lib/actions/auth";
 import type { EventCategory, Venue } from "@/types/database";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Building2, Lock } from "lucide-react";
 import { useEffect } from "react";
 
 interface TierForm {
@@ -31,9 +32,11 @@ const defaultTier: TierForm = {
 export default function NewEventPage() {
   const router = useRouter();
   const [venues, setVenues] = useState<Venue[]>([]);
+  const [payoutDetails, setPayoutDetails] = useState<PayoutDetails | null>(null);
 
   useEffect(() => {
     getVenues().then(setVenues);
+    getPayoutDetails().then(setPayoutDetails);
   }, []);
 
   const [form, setForm] = useState({
@@ -93,6 +96,26 @@ export default function NewEventPage() {
           <h1 className="text-xl font-black text-white">Create Event</h1>
           <p className="text-xs text-white/50">Build in under 2 minutes</p>
         </div>
+      </div>
+
+      {/* Payout Account Notice */}
+      <div className="flex items-center justify-between rounded-xl border border-lime-400/30 bg-lime-400/5 p-3 text-xs">
+        <div className="flex items-center gap-2 text-lime-400 font-semibold">
+          <Building2 className="h-4 w-4 shrink-0" />
+          <span>
+            {payoutDetails?.upi_id
+              ? `Payouts linked to: ${payoutDetails.upi_id}`
+              : payoutDetails?.account_number
+                ? `Payouts linked to Bank Account (•••• ${payoutDetails.account_number.slice(-4)})`
+                : "No payout account set. Add UPI/Bank in Partner Portal."}
+          </span>
+        </div>
+        <Link
+          href="/partner"
+          className="text-xs font-bold text-white underline hover:text-lime-300 shrink-0"
+        >
+          Manage Payouts
+        </Link>
       </div>
 
       <div className="space-y-4">

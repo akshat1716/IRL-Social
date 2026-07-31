@@ -13,6 +13,7 @@ import {
   createPass,
   createSquadPassCheckout,
 } from "@/lib/actions/tickets";
+import { PaymentSelector } from "./payment-selector";
 import { useCheckoutStore } from "@/lib/store";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { Event, TicketTier } from "@/types/database";
@@ -204,7 +205,7 @@ export function CheckoutModal({
             </button>
 
             {selectedTier && (
-              <div className="space-y-3 border-t border-white/10 pt-4">
+              <div className="space-y-4 border-t border-white/10 pt-4">
                 {purchaseMutation.isError && (
                   <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center text-xs text-red-400">
                     <p>{purchaseMutation.error.message}</p>
@@ -227,24 +228,34 @@ export function CheckoutModal({
                       : formatCurrency(selectedTier.price * quantity)}
                   </span>
                 </div>
-                <Button
-                  className="w-full"
-                  variant={event.is_daytime ? "default" : "violet"}
-                  disabled={
-                    !selectedTierId ||
-                    purchaseMutation.isPending ||
-                    selectedTier.sold_count >= selectedTier.max_quantity
-                  }
-                  onClick={() => purchaseMutation.mutate()}
-                >
-                  {purchaseMutation.isPending
-                    ? "Processing..."
-                    : squadMode
-                      ? "Create Squad & Pay"
-                      : selectedTier.price === 0
-                        ? "RSVP Free"
-                        : "Get Pass"}
-                </Button>
+
+                {selectedTier.price > 0 ? (
+                  <PaymentSelector
+                    amount={
+                      squadMode ? selectedTier.price : selectedTier.price * quantity
+                    }
+                    eventTitle={event.title}
+                    isProcessing={purchaseMutation.isPending}
+                    onPaymentSuccess={() => purchaseMutation.mutate()}
+                  />
+                ) : (
+                  <Button
+                    className="w-full py-6 text-base font-bold"
+                    variant={event.is_daytime ? "default" : "violet"}
+                    disabled={
+                      !selectedTierId ||
+                      purchaseMutation.isPending ||
+                      selectedTier.sold_count >= selectedTier.max_quantity
+                    }
+                    onClick={() => purchaseMutation.mutate()}
+                  >
+                    {purchaseMutation.isPending
+                      ? "Securing Pass..."
+                      : squadMode
+                        ? "Create Free Squad Pass"
+                        : "RSVP Free"}
+                  </Button>
+                )}
               </div>
             )}
           </div>
