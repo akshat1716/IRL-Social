@@ -24,179 +24,69 @@ export interface PaymentSelectorProps {
 
 type PaymentType = "upi" | "apple_pay" | "card";
 
-// 1. Paytm Icon (High Resolution SVG)
+// 1. Paytm Icon (Image from user provided payment selectors)
 function PaytmIcon({ className = "h-10 w-10" }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 120 120" fill="none">
-      <rect width="120" height="120" rx="26" fill="#00BAF2" />
-      <path
-        d="M0 60h120v34c0 14.36-11.64 26-26 26H26C11.64 120 0 108.36 0 94V60z"
-        fill="#002E6D"
-      />
-      <circle cx="60" cy="60" r="40" fill="#FFFFFF" />
-      <text
-        x="24"
-        y="68"
-        fontFamily="system-ui, -apple-system, sans-serif"
-        fontWeight="900"
-        fontSize="24"
-        fill="#002E6D"
-      >
-        pay
-      </text>
-      <text
-        x="64"
-        y="68"
-        fontFamily="system-ui, -apple-system, sans-serif"
-        fontWeight="900"
-        fontSize="24"
-        fill="#00BAF2"
-      >
-        tm
-      </text>
-    </svg>
+    <img
+      src="/images/payments/paytm.png"
+      alt="Paytm"
+      className={cn("object-contain shrink-0", className)}
+    />
   );
 }
 
-// 2. PhonePe Icon (High Resolution SVG)
+// 2. PhonePe Icon (Image from user provided payment selectors)
 function PhonePeIcon({ className = "h-10 w-10" }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 120 120" fill="none">
-      <rect width="120" height="120" rx="26" fill="#5F259F" />
-      <path
-        d="M38 28h44v12H62v15c11 1 19 9.5 19 20.5 0 11.5-9.5 21-21 21H50V68h11c6 0 11-5 11-11s-5-11-11-11H50V28H38z"
-        fill="#FFFFFF"
-      />
-      <path
-        d="M72 26L52 52"
-        stroke="#FFFFFF"
-        strokeWidth="10"
-        strokeLinecap="round"
-      />
-    </svg>
+    <img
+      src="/images/payments/phonepe.png"
+      alt="PhonePe"
+      className={cn("object-contain shrink-0", className)}
+    />
   );
 }
 
-// 3. Google Pay Icon (High Resolution SVG)
+// 3. Google Pay Icon (Image from user provided payment selectors)
 function GPayIcon({ className = "h-10 w-10" }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 120 120" fill="none">
-      <rect
-        width="120"
-        height="120"
-        rx="26"
-        fill="#FFFFFF"
-        stroke="#E2E8F0"
-        strokeWidth="3"
-      />
-      <g transform="translate(20, 24) scale(0.8)">
-        <path
-          d="M52.4 41.6L35.2 24.4c-5.6-5.6-14.8-5.6-20.4 0L5.8 33.4c-5.6 5.6-5.6 14.8 0 20.4l35.3 35.3c5.6 5.6 14.8 5.6 20.4 0l9-9c5.6-5.6 5.6-14.8 0-20.4L52.4 41.6z"
-          fill="#4285F4"
-        />
-        <path
-          d="M81.8 33.4l-9-9c-5.6-5.6-14.8-5.6-20.4 0L17.2 59.6c-5.6 5.6-5.6 14.8 0 20.4l9 9c5.6 5.6 14.8 5.6 20.4 0l35.2-35.2c5.7-5.7 5.7-14.8 0-20.4z"
-          fill="#34A853"
-        />
-        <path
-          d="M52.4 41.6L43.4 32.6c-5.6-5.6-14.8-5.6-20.4 0L14 41.6c-5.6 5.6-5.6 14.8 0 20.4l9 9 29.4-29.4z"
-          fill="#FBBC05"
-        />
-        <path
-          d="M81.8 33.4c-5.6-5.6-14.8-5.6-20.4 0L32 62.8l9 9 31.8-31.8c5.7-5.7 5.7-14.9 9-6.6z"
-          fill="#EA4335"
-        />
-      </g>
-    </svg>
+    <img
+      src="/images/payments/gpay.png"
+      alt="Google Pay"
+      className={cn("object-contain shrink-0", className)}
+    />
   );
 }
 
-// 4. BHIM Icon (High Resolution SVG)
+// 4. BHIM Icon (Image from user provided payment selectors)
 function BhimIcon({ className = "h-10 w-10" }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 120 120" fill="none">
-      <rect
-        width="120"
-        height="120"
-        rx="26"
-        fill="#FFFFFF"
-        stroke="#E2E8F0"
-        strokeWidth="3"
-      />
-      <path d="M30 94L82 26H56L30 94z" fill="#FF7A00" />
-      <path d="M52 94L94 40H72L52 94z" fill="#008837" />
-    </svg>
+    <img
+      src="/images/payments/bhim.png"
+      alt="BHIM"
+      className={cn("object-contain shrink-0", className)}
+    />
   );
 }
 
-// 5. Amazon Pay Icon (High Resolution SVG)
+// 5. Amazon Pay Icon (Image from user provided assets)
 function AmazonPayIcon({ className = "h-10 w-10" }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 120 120" fill="none">
-      <circle cx="60" cy="60" r="58" fill="#000000" />
-      <text
-        x="14"
-        y="62"
-        fontFamily="system-ui, -apple-system, sans-serif"
-        fontWeight="900"
-        fontSize="21"
-        fill="#FFFFFF"
-      >
-        amazon
-      </text>
-      <text
-        x="80"
-        y="62"
-        fontFamily="system-ui, -apple-system, sans-serif"
-        fontWeight="400"
-        fontSize="21"
-        fill="#FFFFFF"
-      >
-        pay
-      </text>
-      <path
-        d="M22 71c14 8 29 8 42 0"
-        stroke="#FFFFFF"
-        strokeWidth="4"
-        strokeLinecap="round"
-      />
-      <path
-        d="M60 67l7 4.5-4 6"
-        stroke="#FFFFFF"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <img
+      src="/images/payments/amazonpay.png"
+      alt="Amazon Pay"
+      className={cn("object-contain shrink-0", className)}
+    />
   );
 }
 
-// 6. CRED Pay Icon (High Resolution SVG)
+// 6. CRED Pay Icon (Image from user provided assets)
 function CredPayIcon({ className = "h-10 w-10" }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 120 120" fill="none">
-      <rect
-        width="120"
-        height="120"
-        rx="26"
-        fill="#121212"
-        stroke="#333333"
-        strokeWidth="3"
-      />
-      <path
-        d="M32 30h56v60H32V30z"
-        stroke="#FFFFFF"
-        strokeWidth="7"
-        fill="none"
-      />
-      <path
-        d="M44 42h32v36H44V42z"
-        stroke="#FFFFFF"
-        strokeWidth="6"
-        fill="none"
-      />
-      <path d="M56 54h8v12h-8V54z" fill="#FFFFFF" />
-    </svg>
+    <img
+      src="/images/payments/cred.png"
+      alt="CRED Pay"
+      className={cn("object-contain shrink-0", className)}
+    />
   );
 }
 
@@ -412,7 +302,7 @@ export function PaymentSelector({
                         : "border-white/10 bg-white/5 hover:bg-white/10"
                     )}
                   >
-                    <IconComponent className="h-10 w-10 shrink-0 rounded-xl shadow-md" />
+                    <IconComponent className="h-10 w-10 shrink-0 shadow-md" />
                     <div className="flex flex-col min-w-0">
                       <span className="text-xs font-bold leading-tight truncate text-white">
                         {app.name}
@@ -490,11 +380,12 @@ export function PaymentSelector({
           {isSimulating || isProcessing ? (
             <span className="text-sm font-medium text-white/80">Authorizing Apple Pay...</span>
           ) : (
-            <div className="flex items-center justify-center gap-1.5">
-              <AppleLogoIcon className="h-6 w-6 fill-white text-white" />
-              <span className="text-2xl font-bold tracking-tight text-white font-sans leading-none">
-                Pay
-              </span>
+            <div className="flex items-center justify-center">
+              <img
+                src="/images/payments/applepay.png"
+                alt="Apple Pay"
+                className="h-10 w-auto object-contain scale-105"
+              />
             </div>
           )}
         </button>
