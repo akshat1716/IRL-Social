@@ -74,14 +74,39 @@ export async function getEventsByCategory(
 
 export async function getVenues() {
   const supabase = createClient();
-  const { data, error } = await supabase.from("venues").select("*");
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let query = supabase.from("venues").select("*");
+
+  if (user) {
+    query = query.eq("partner_id", user.id);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error("getVenues error:", error.message);
     return [];
   }
 
-  return (data ?? []).map(mapVenue);
+  const seedIdsToIgnore = [
+    "11111111-1111-1111-1111-111111111101",
+    "11111111-1111-1111-1111-111111111102",
+    "11111111-1111-1111-1111-111111111103",
+    "11111111-1111-1111-1111-111111111104",
+    "venue-1",
+    "venue-2",
+    "venue-3",
+    "venue-4",
+    "venue-5",
+    "venue-6",
+  ];
+
+  return (data ?? [])
+    .map(mapVenue)
+    .filter((v) => !seedIdsToIgnore.includes(v.id));
 }
 
 export async function createVenue(input: {
@@ -105,8 +130,8 @@ export async function createVenue(input: {
       location: input.location,
       address: input.address,
       partner_id: partnerId,
-      lat: input.lat ?? 12.9716,
-      lng: input.lng ?? 77.5946,
+      lat: input.lat ?? 26.8467,
+      lng: input.lng ?? 80.9462,
     })
     .select()
     .single();
@@ -119,8 +144,8 @@ export async function createVenue(input: {
       location: input.location,
       address: input.address,
       partner_id: partnerId,
-      lat: input.lat ?? 12.9716,
-      lng: input.lng ?? 77.5946,
+      lat: input.lat ?? 26.8467,
+      lng: input.lng ?? 80.9462,
     };
   }
 
