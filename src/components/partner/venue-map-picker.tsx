@@ -189,7 +189,7 @@ export function VenueMapPicker({
           data.address?.leisure ||
           data.address?.shop ||
           data.address?.road ||
-          "Custom Location";
+          (searchQuery.trim() ? searchQuery : "Custom Location");
         const locationPart =
           [
             data.address?.suburb || data.address?.neighbourhood,
@@ -198,7 +198,7 @@ export function VenueMapPicker({
             .filter(Boolean)
             .join(", ") || "Lucknow, Uttar Pradesh";
 
-        if (!venueName) setVenueName(namePart);
+        if (!venueName || venueName === "Custom Location") setVenueName(namePart);
         setVenueLocation(locationPart);
         setVenueAddress(data.display_name);
       }
@@ -209,27 +209,115 @@ export function VenueMapPicker({
     }
   };
 
+  const [hasSearched, setHasSearched] = useState(false);
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setIsSearching(true);
+    setHasSearched(true);
     try {
-      let res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-          searchQuery
-        )}&addressdetails=1&limit=8&countrycodes=in`
-      );
-      let data = await res.json();
+      const results: SearchResult[] = [];
 
-      if (!data || data.length === 0) {
-        res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-            searchQuery + ", India"
-          )}&addressdetails=1&limit=8`
-        );
-        data = await res.json();
+      // 1. Try Photon API (Fuzzy Elasticsearch over OSM with location bias)
+      try {
+        const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(
+          searchQuery
+        )}&limit=8&lat=${selectedCoords.lat}&lon=${selectedCoords.lng}`;
+        const pRes = await fetch(photonUrl);
+        const pData = await pRes.json();
+
+        if (pData?.features?.length > 0) {
+          pData.features.forEach((feat: any, idx: number) => {
+            const props = feat.properties || {};
+            const coords = feat.geometry?.coordinates || [selectedCoords.lng, selectedCoords.lat];
+            const name = props.name || props.street || searchQuery;
+            const cityPart = [props.district || props.suburb, props.city || props.town || props.state]
+              .filter(Boolean)
+              .join(", ");
+            const fullLabel = [name, cityPart, props.country].filter(Boolean).join(", ");
+
+            results.push({
+              place_id: `photon-${idx}-${props.osm_id || Math.random()}`,
+              display_name: fullLabel,
+              name,
+              lat: String(coords[1]),
+              lon: String(coords[0]),
+              address: {
+                suburb: props.district || props.suburb,
+                city: props.city || props.town || props.state,
+              },
+            });
+          });
+        }
+      } catch (pErr) {
+        console.warn("Photon API error:", pErr);
       }
 
-      setSearchResults(data || []);
+      // 2. Try Nominatim API if Photon returned less than 3 results
+      if (results.length < 3) {
+        try {
+          const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+            searchQuery
+          )}&addressdetails=1&limit=8&countrycodes=in`;
+          const nRes = await fetch(nomUrl);
+          const nData = await nRes.json();
+
+          if (Array.isArray(nData)) {
+            nData.forEach((item: any) => {
+              if (!results.some((r) => Math.abs(parseFloat(r.lat) - parseFloat(item.lat)) < 0.001)) {
+                results.push({
+                  place_id: item.place_id,
+                  display_name: item.display_name,
+                  name: item.name || item.display_name.split(",")[0],
+                  lat: item.lat,
+                  lon: item.lon,
+                  address: item.address,
+                });
+              }
+            });
+          }
+        } catch (nErr) {
+          console.warn("Nominatim error:", nErr);
+        }
+      }
+
+      // 3. Fallback: query with city appended if 0 results
+      if (results.length === 0 && searchQuery.length > 3) {
+        try {
+          const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+            searchQuery + " Lucknow"
+          )}&addressdetails=1&limit=5`;
+          const fRes = await fetch(fallbackUrl);
+          const fData = await fRes.json();
+          if (Array.isArray(fData)) {
+            fData.forEach((item: any) => {
+              results.push({
+                place_id: item.place_id,
+                display_name: item.display_name,
+                name: item.name || item.display_name.split(",")[0],
+                lat: item.lat,
+                lon: item.lon,
+                address: item.address,
+              });
+            });
+          }
+        } catch (fErr) {
+          console.warn("Fallback error:", fErr);
+        }
+      }
+
+      setSearchResults(results);
+
+      // If user searched for a specific title like "paddles and lattes gomtinagar", pre-fill the venue name if empty
+      if (searchQuery.trim()) {
+        const cleanedTitle = searchQuery
+          .split(" ")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(" ");
+        if (!venueName || venueName === "Custom Location") {
+          setVenueName(cleanedTitle);
+        }
+      }
     } catch (err) {
       console.warn("Search error:", err);
     } finally {
@@ -249,11 +337,11 @@ export function VenueMapPicker({
       markerRef.current.setLatLng([lat, lng]);
     }
 
-    const title = result.address?.name || result.display_name.split(",")[0] || "Custom Venue";
+    const title = result.name || result.display_name.split(",")[0] || searchQuery || "Custom Venue";
     const loc =
       [
-        result.address?.suburb || result.address?.neighbourhood,
-        result.address?.city || result.address?.town || result.address?.state_district,
+        result.address?.suburb,
+        result.address?.city || result.address?.town,
       ]
         .filter(Boolean)
         .join(", ") || "Lucknow, Uttar Pradesh";
@@ -315,7 +403,7 @@ export function VenueMapPicker({
             <div className="relative flex-1">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-white/40" />
               <Input
-                placeholder="Search venue e.g. Toit Indiranagar, Cubbon Park..."
+                placeholder="Search venue e.g. Paddles & Latte, Gomti Nagar Lucknow..."
                 className="pl-9 bg-zinc-900 border-white/10 text-xs text-white"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -345,6 +433,16 @@ export function VenueMapPicker({
                   <span className="line-clamp-2">{item.display_name}</span>
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* No Results Feedback Banner */}
+          {hasSearched && searchResults.length === 0 && !isSearching && (
+            <div className="absolute top-11 left-0 right-0 z-[1000] rounded-xl border border-amber-500/30 bg-zinc-900/95 p-2.5 shadow-xl backdrop-blur-md text-xs text-amber-300 flex items-center justify-between">
+              <span>No exact map pin match found for &quot;{searchQuery}&quot;. Tap anywhere on the map or type venue details below!</span>
+              <button onClick={() => setHasSearched(false)} className="text-white/40 hover:text-white ml-2 shrink-0">
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
         </div>
