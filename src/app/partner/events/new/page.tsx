@@ -304,7 +304,11 @@ export default function NewEventPage() {
             value={form.venue_id}
             onChange={(e) => setForm({ ...form, venue_id: e.target.value })}
           >
-            <option value="">Select venue ({venues.length} available)</option>
+            <option value="">
+              {venues.length === 0
+                ? "No venue selected. Click 'Pick on Map' to add one"
+                : `Select venue (${venues.length} available)`}
+            </option>
             {venues.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.name} — {v.location}

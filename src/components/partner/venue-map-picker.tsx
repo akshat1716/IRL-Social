@@ -30,8 +30,8 @@ interface SearchResult {
   };
 }
 
-// Default center: Bangalore (12.9716, 77.5946)
-const DEFAULT_CENTER = { lat: 12.9716, lng: 77.5946 };
+// Default center: Lucknow (26.8467, 80.9462)
+const DEFAULT_CENTER = { lat: 26.8467, lng: 80.9462 };
 
 export function VenueMapPicker({
   isOpen,
@@ -130,6 +130,24 @@ export function VenueMapPicker({
         updateSelectedPoint(lat, lng, true);
       });
 
+      // Try browser geolocation to center on user's current city
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const userLat = pos.coords.latitude;
+            const userLng = pos.coords.longitude;
+            setSelectedCoords({ lat: userLat, lng: userLng });
+            map.setView([userLat, userLng], 15);
+            marker.setLatLng([userLat, userLng]);
+            reverseGeocode(userLat, userLng);
+          },
+          (err) => {
+            console.log("Geolocation permission not granted or unavailable, using Lucknow default");
+          },
+          { timeout: 5000 }
+        );
+      }
+
       // Perform initial reverse geocode if empty
       if (!venueName) {
         reverseGeocode(selectedCoords.lat, selectedCoords.lng);
@@ -173,9 +191,12 @@ export function VenueMapPicker({
           data.address?.road ||
           "Custom Location";
         const locationPart =
-          [data.address?.suburb || data.address?.neighbourhood, data.address?.city || data.address?.town]
+          [
+            data.address?.suburb || data.address?.neighbourhood,
+            data.address?.city || data.address?.town || data.address?.state_district,
+          ]
             .filter(Boolean)
-            .join(", ") || "Bengaluru";
+            .join(", ") || "Lucknow, Uttar Pradesh";
 
         if (!venueName) setVenueName(namePart);
         setVenueLocation(locationPart);
@@ -192,12 +213,22 @@ export function VenueMapPicker({
     if (!searchQuery.trim()) return;
     setIsSearching(true);
     try {
-      const res = await fetch(
+      let res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
           searchQuery
-        )}&addressdetails=1&limit=5`
+        )}&addressdetails=1&limit=8&countrycodes=in`
       );
-      const data = await res.json();
+      let data = await res.json();
+
+      if (!data || data.length === 0) {
+        res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+            searchQuery + ", India"
+          )}&addressdetails=1&limit=8`
+        );
+        data = await res.json();
+      }
+
       setSearchResults(data || []);
     } catch (err) {
       console.warn("Search error:", err);
@@ -210,17 +241,22 @@ export function VenueMapPicker({
     const lat = parseFloat(result.lat);
     const lng = parseFloat(result.lon);
 
-    updateSelectedPoint(lat, lng, false);
+    setSelectedCoords({ lat, lng });
     if (mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo([lat, lng], 16, { animate: true });
+      mapInstanceRef.current.setView([lat, lng], 17, { animate: true });
+    }
+    if (markerRef.current) {
+      markerRef.current.setLatLng([lat, lng]);
     }
 
-    const title = result.display_name.split(",")[0] || "Custom Venue";
+    const title = result.address?.name || result.display_name.split(",")[0] || "Custom Venue";
     const loc =
-      result.address?.suburb ||
-      result.address?.city ||
-      result.address?.town ||
-      "City Area";
+      [
+        result.address?.suburb || result.address?.neighbourhood,
+        result.address?.city || result.address?.town || result.address?.state_district,
+      ]
+        .filter(Boolean)
+        .join(", ") || "Lucknow, Uttar Pradesh";
 
     setVenueName(title);
     setVenueLocation(loc);
