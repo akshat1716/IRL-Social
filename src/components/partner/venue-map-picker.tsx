@@ -80,13 +80,12 @@ export function VenueMapPicker({
         14
       );
 
-      // Sleek Dark Tile Layer
+      // Rich Detailed Street Tile Layer with Places & POI labels
       L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
         {
           attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-          subdomains: "abcd",
+            '&copy; <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, USGS, NGA, EPA, USDA, NPS',
           maxZoom: 19,
         }
       ).addTo(map);
@@ -211,12 +210,27 @@ export function VenueMapPicker({
 
   const [hasSearched, setHasSearched] = useState(false);
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+  // Live debounced autocomplete as the host types (2+ chars)
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      setHasSearched(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      handleSearch(searchQuery);
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const handleSearch = async (queryToSearch = searchQuery) => {
+    if (!queryToSearch.trim()) return;
     setIsSearching(true);
     setHasSearched(true);
     try {
-      const res = await fetch(`/api/venues/search?q=${encodeURIComponent(searchQuery)}`);
+      const res = await fetch(`/api/venues/search?q=${encodeURIComponent(queryToSearch)}`);
       const data = await res.json();
 
       if (Array.isArray(data) && data.length > 0) {
@@ -233,7 +247,7 @@ export function VenueMapPicker({
 
         setSearchResults(formatted);
 
-        // Auto-fly to top match immediately
+        // Auto-fly to top match immediately on search
         const topResult = formatted[0];
         handleSelectSearchResult(topResult);
       } else {
@@ -244,6 +258,17 @@ export function VenueMapPicker({
     } finally {
       setIsSearching(false);
     }
+  };
+
+  const openDirections = (lat: number, lng: number, title: string) => {
+    const isApple =
+      typeof navigator !== "undefined" &&
+      /iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent);
+    const encodedTitle = encodeURIComponent(title || "Venue Location");
+    const url = isApple
+      ? `https://maps.apple.com/?q=${encodedTitle}&ll=${lat},${lng}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodedTitle}+${lat},${lng}`;
+    window.open(url, "_blank");
   };
 
   const handleSelectSearchResult = (result: SearchResult) => {
@@ -419,8 +444,18 @@ export function VenueMapPicker({
 
         {/* Footer Actions */}
         <div className="flex items-center justify-between pt-1">
-          <div className="text-[10px] text-white/40">
-            Lat: {selectedCoords.lat.toFixed(4)}, Lng: {selectedCoords.lng.toFixed(4)}
+          <div className="flex items-center gap-2">
+            <div className="text-[10px] text-white/40">
+              Lat: {selectedCoords.lat.toFixed(4)}, Lng: {selectedCoords.lng.toFixed(4)}
+            </div>
+            <button
+              type="button"
+              onClick={() => openDirections(selectedCoords.lat, selectedCoords.lng, venueName || searchQuery)}
+              className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-violet-300 hover:bg-white/20 hover:text-white"
+            >
+              <Navigation className="h-3 w-3" />
+              Get Directions
+            </button>
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={onClose} className="text-xs">

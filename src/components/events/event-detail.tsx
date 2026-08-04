@@ -8,7 +8,7 @@ import { CheckoutModal } from "@/components/events/checkout-modal";
 import { categoryLabels, vibeLabels, isMatchmakingCategory } from "@/lib/store";
 import { cn, formatCurrency, formatDate, formatTime } from "@/lib/utils";
 import type { Event, Squad } from "@/types/database";
-import { ArrowLeft, Clock, MapPin, Users, Zap, UserPlus, Dumbbell } from "lucide-react";
+import { ArrowLeft, Clock, MapPin, Users, Zap, UserPlus, Dumbbell, Navigation } from "lucide-react";
 import Link from "next/link";
 import { OpenSquadModal } from "@/components/events/open-squad-modal";
 import { getPublicSquadsForEvent } from "@/lib/actions/tickets";
@@ -96,12 +96,33 @@ export function EventDetail({ event }: EventDetailProps) {
         </div>
 
         {event.venue && (
-          <div className="flex items-start gap-3 text-sm text-white/60">
-            <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <p className="font-medium text-white">{event.venue.name}</p>
-              <p>{event.venue.address}</p>
+          <div className="flex items-start justify-between rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/60">
+            <div className="flex items-start gap-3">
+              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" />
+              <div>
+                <p className="font-medium text-white">{event.venue.name}</p>
+                <p className="text-xs text-white/50">{event.venue.address}</p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                const isApple =
+                  typeof navigator !== "undefined" &&
+                  /iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent);
+                const title = encodeURIComponent(event.venue?.name || "Venue");
+                const lat = event.venue?.lat || 26.8515;
+                const lng = event.venue?.lng || 80.9415;
+                const url = isApple
+                  ? `https://maps.apple.com/?q=${title}&ll=${lat},${lng}`
+                  : `https://www.google.com/maps/search/?api=1&query=${title}+${lat},${lng}`;
+                window.open(url, "_blank");
+              }}
+              className="inline-flex items-center gap-1 rounded-lg bg-violet-500/20 px-2.5 py-1.5 text-xs font-semibold text-violet-300 hover:bg-violet-500/30 hover:text-white shrink-0"
+            >
+              <Navigation className="h-3.5 w-3.5" />
+              Directions
+            </button>
           </div>
         )}
 

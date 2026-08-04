@@ -52,6 +52,14 @@ const LUCKNOW_POPULAR_VENUES: SearchVenueResult[] = [
     lng: 80.9972,
   },
   {
+    place_id: "lucknow-cherry-tree-hazratganj",
+    name: "Cherry Tree Cafe & Bakery",
+    location: "Hazratganj",
+    address: "Mahatma Gandhi Marg, Hazratganj, Lucknow, Uttar Pradesh 226001",
+    lat: 26.8515,
+    lng: 80.9415,
+  },
+  {
     place_id: "lucknow-1090-chauraha",
     name: "1090 Chauraha Street Food Hub",
     location: "Gomti Nagar",
