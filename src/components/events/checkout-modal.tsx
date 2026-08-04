@@ -51,27 +51,122 @@ export function CheckoutModal({
 
   const purchaseMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedTierId) throw new Error("Select a pass");
+      if (!selectedTierId || !selectedTier) throw new Error("Select a pass");
 
-      if (squadMode) {
-        const result = await createSquadPassCheckout({
+      const totalAmount = selectedTier.price * quantity;
+
+      // Call Razorpay Order Creation API
+      const orderRes = await fetch("/api/payments/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: totalAmount,
           event_id: event.id,
           tier_id: selectedTierId,
-        });
-        setSquadLink(`${window.location.origin}${result.share_url}`);
-        return result.pass;
+          squad_mode: squadMode,
+        }),
+      });
+
+      const orderData = await orderRes.json();
+
+      if (orderRes.status !== 200 || orderData.error) {
+        throw new Error(orderData.error || "Failed to create order");
       }
 
-      const passes = [];
-      for (let i = 0; i < quantity; i++) {
-        passes.push(
-          await createPass({
+      // If simulated key/local fallback: verify immediately
+      if (orderData.is_simulated) {
+        const verifyRes = await fetch("/api/payments/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            razorpay_order_id: orderData.id,
+            razorpay_payment_id: "pay_sim_" + Date.now(),
+            razorpay_signature: "sig_sim",
             event_id: event.id,
             tier_id: selectedTierId,
-          })
-        );
+            squad_mode: squadMode,
+            quantity,
+            is_simulated: true,
+          }),
+        });
+
+        const verifyData = await verifyRes.json();
+        if (!verifyRes.ok || !verifyData.success) {
+          throw new Error(verifyData.error || "Verification failed");
+        }
+
+        if (verifyData.share_url) {
+          setSquadLink(`${window.location.origin}${verifyData.share_url}`);
+        }
+        return verifyData.pass || verifyData.passes;
       }
-      return passes;
+
+      // Live Razorpay Checkout Integration
+      return new Promise((resolve, reject) => {
+        const loadScript = (src: string) => {
+          return new Promise((res) => {
+            if (document.querySelector(`script[src="${src}"]`)) return res(true);
+            const script = document.createElement("script");
+            script.src = src;
+            script.onload = () => res(true);
+            script.onerror = () => res(false);
+            document.body.appendChild(script);
+          });
+        };
+
+        loadScript("https://checkout.razorpay.com/v1/checkout.js").then((loaded) => {
+          if (!loaded || !(window as any).Razorpay) {
+            return reject(new Error("Failed to load Razorpay Payment Gateway"));
+          }
+
+          const options = {
+            key: orderData.key,
+            amount: orderData.amount,
+            currency: orderData.currency,
+            name: "IRL Events",
+            description: `${event.title} — ${selectedTier.name}`,
+            order_id: orderData.id,
+            theme: { color: "#a855f7" },
+            handler: async (response: any) => {
+              try {
+                const verifyRes = await fetch("/api/payments/verify", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature,
+                    event_id: event.id,
+                    tier_id: selectedTierId,
+                    squad_mode: squadMode,
+                    quantity,
+                  }),
+                });
+
+                const verifyData = await verifyRes.json();
+                if (verifyRes.ok && verifyData.success) {
+                  if (verifyData.share_url) {
+                    setSquadLink(`${window.location.origin}${verifyData.share_url}`);
+                  }
+                  resolve(verifyData.pass || verifyData.passes);
+                } else {
+                  reject(new Error(verifyData.error || "Payment signature error"));
+                }
+              } catch (err) {
+                reject(err);
+              }
+            },
+            modal: {
+              ondismiss: () => {
+                reject(new Error("Payment cancelled by user"));
+              },
+            },
+          };
+
+          const rzp = new (window as any).Razorpay(options);
+          rzp.open();
+        });
+      });
     },
     onSuccess: () => {
       setSuccess(true);

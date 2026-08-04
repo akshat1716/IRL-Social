@@ -45,12 +45,34 @@ export const useCheckoutStore = create<CheckoutState>((set) => ({
 }));
 
 export const categoryLabels: Record<EventCategory, string> = {
+  badminton: "Badminton",
+  football: "Turf Football",
+  pickleball: "Pickleball",
+  cricket: "Box Cricket",
+  basketball: "Basketball",
   run_club: "Run Club",
+  board_games: "Board Games",
+  sports: "Sports & Fitness",
   nightlife: "Nightlife",
   karaoke: "Karaoke",
-  mixer: "Mixer",
-  board_games: "Board Games",
+  mixer: "Social Mixer",
 };
+
+export const MATCHMAKING_CATEGORIES: EventCategory[] = [
+  "badminton",
+  "football",
+  "pickleball",
+  "cricket",
+  "basketball",
+  "run_club",
+  "board_games",
+  "sports",
+];
+
+export function isMatchmakingCategory(category?: EventCategory): boolean {
+  if (!category) return false;
+  return MATCHMAKING_CATEGORIES.includes(category);
+}
 
 export const vibeLabels = {
   chill: { label: "Chill Vibe", color: "text-cyan-400" },

@@ -10,11 +10,17 @@ import { Input } from "@/components/ui/input";
 
 const categories: (EventCategory | "all")[] = [
   "all",
+  "badminton",
+  "football",
+  "pickleball",
+  "cricket",
+  "basketball",
   "run_club",
-  "mixer",
   "board_games",
+  "sports",
   "nightlife",
   "karaoke",
+  "mixer",
 ];
 
 interface ExploreClientProps {

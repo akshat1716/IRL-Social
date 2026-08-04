@@ -73,6 +73,24 @@ export const mockVenues: Venue[] = [
     lat: 12.9116,
     lng: 77.6473,
   },
+  {
+    id: "venue-5",
+    name: "SmashZone Badminton Arena",
+    location: "Indiranagar",
+    address: "12th Main Rd, Indiranagar, Bangalore",
+    partner_id: "partner-1",
+    lat: 12.9716,
+    lng: 77.6412,
+  },
+  {
+    id: "venue-6",
+    name: "KickOff Turf Football",
+    location: "HSR Layout",
+    address: "Sector 1, HSR Layout, Bangalore",
+    partner_id: "partner-1",
+    lat: 12.9125,
+    lng: 77.6441,
+  },
 ];
 
 export const mockEvents: Event[] = [
@@ -165,6 +183,44 @@ export const mockEvents: Event[] = [
     current_attendees: 18,
     vibe_status: "chill",
     is_daytime: true,
+  },
+  {
+    id: "event-7",
+    venue_id: "venue-5",
+    title: "Badminton Doubles Open Match (2v2)",
+    description:
+      "Join or host open badminton doubles matches. Feather shuttles provided. Looking for intermediate players!",
+    category: "badminton",
+    cover_image: "coffee",
+    start_time: new Date(Date.now() + 86400000 * 1).toISOString(),
+    end_time: new Date(Date.now() + 86400000 * 1 + 7200000).toISOString(),
+    capacity: 16,
+    current_attendees: 10,
+    vibe_status: "warming_up",
+    is_daytime: true,
+    is_matchmaking_enabled: true,
+    skill_level: "intermediate",
+    equipment_provided: "Yonex Mavis 350 Shuttles provided. Bring your racquet.",
+    max_squad_size: 4,
+  },
+  {
+    id: "event-8",
+    venue_id: "venue-6",
+    title: "5v5 Night Turf Football Challenge",
+    description:
+      "Casual 5-a-side floodlight football game. Split pitch fees with your open squad mates!",
+    category: "football",
+    cover_image: "run",
+    start_time: new Date(Date.now() + 86400000 * 2).toISOString(),
+    end_time: new Date(Date.now() + 86400000 * 2 + 5400000).toISOString(),
+    capacity: 20,
+    current_attendees: 14,
+    vibe_status: "peak_vibe",
+    is_daytime: false,
+    is_matchmaking_enabled: true,
+    skill_level: "all",
+    equipment_provided: "Size 5 Match Football & Colored Bibs provided.",
+    max_squad_size: 10,
   },
 ];
 
@@ -289,6 +345,26 @@ export const mockTicketTiers: TicketTier[] = [
     max_quantity: 16,
     sold_count: 8,
   },
+  {
+    id: "tier-13",
+    event_id: "event-7",
+    name: "Player Slot (Split Court Fee)",
+    description: "Court booking + Mavis 350 shuttles included",
+    price: 250,
+    cover_redeemable_amount: 0,
+    max_quantity: 16,
+    sold_count: 10,
+  },
+  {
+    id: "tier-14",
+    event_id: "event-8",
+    name: "Turf Football Slot",
+    description: "Full pitch lights + bibs & match balls included",
+    price: 350,
+    cover_redeemable_amount: 0,
+    max_quantity: 20,
+    sold_count: 14,
+  },
 ];
 
 export const mockPasses: Pass[] = [
@@ -305,7 +381,50 @@ export const mockPasses: Pass[] = [
 ];
 
 export const mockCheckIns: CheckIn[] = [];
-export const mockSquads: Squad[] = [];
+export const mockSquads: Squad[] = [
+  {
+    id: "sq-101",
+    event_id: "event-7",
+    tier_id: "tier-13",
+    creator_id: "user-1",
+    share_code: "BADM44",
+    member_pass_ids: ["pass-1", "pass-2"],
+    created_at: new Date().toISOString(),
+    is_public: true,
+    skill_level: "Intermediate (3.5+)",
+    notes: "Looking for 2 players for 2v2 doubles! Friendly match.",
+    max_members: 4,
+    creator_name: "Rohan & Dev",
+  },
+  {
+    id: "sq-102",
+    event_id: "event-7",
+    tier_id: "tier-13",
+    creator_id: "partner-1",
+    share_code: "SMASH9",
+    member_pass_ids: ["pass-3"],
+    created_at: new Date().toISOString(),
+    is_public: true,
+    skill_level: "Beginner Friendly",
+    notes: "Need 3 players for casual rallies & doubles.",
+    max_members: 4,
+    creator_name: "Ananya",
+  },
+  {
+    id: "sq-103",
+    event_id: "event-8",
+    tier_id: "tier-14",
+    creator_id: "user-1",
+    share_code: "FOOT55",
+    member_pass_ids: ["pass-1", "pass-2", "pass-3", "pass-4", "pass-5", "pass-6"],
+    created_at: new Date().toISOString(),
+    is_public: true,
+    skill_level: "All Levels Welcome",
+    notes: "Need 4 players to complete 5v5 team roster!",
+    max_members: 10,
+    creator_name: "Koramangala Strikers",
+  },
+];
 
 function generateQrHash(): string {
   return `IRL-PASS-${uuidv4().replace(/-/g, "").slice(0, 12)}`;

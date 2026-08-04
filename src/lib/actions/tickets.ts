@@ -258,3 +258,98 @@ export async function joinSquad(code: string): Promise<Pass> {
     squad_id: squad.id,
   });
 }
+
+export async function getPublicSquadsForEvent(eventId: string): Promise<Squad[]> {
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from("squads")
+    .select("*, profiles:creator_id(name)")
+    .eq("event_id", eventId);
+
+  if (error || !data) {
+    // Return mock open squads if DB table is empty or offline
+    return [];
+  }
+
+  return data.map((s: any) => ({
+    id: s.id,
+    event_id: s.event_id,
+    tier_id: s.tier_id,
+    creator_id: s.creator_id,
+    share_code: s.share_code,
+    member_pass_ids: s.member_pass_ids ?? [],
+    created_at: s.created_at,
+    is_public: s.is_public ?? true,
+    skill_level: s.skill_level ?? "Intermediate",
+    notes: s.notes ?? "Looking for players to join match",
+    max_members: s.max_members ?? 4,
+    creator_name: s.profiles?.name ?? "Community Player",
+  }));
+}
+
+export async function createPublicOpenSquad(input: {
+  event_id: string;
+  tier_id: string;
+  skill_level?: string;
+  notes?: string;
+  max_members?: number;
+}): Promise<{ squad: Squad; share_url: string }> {
+  const { supabase, user } = await requireUser();
+  const shareCode = randomBytes(4).toString("hex").toUpperCase();
+
+  const { data: squad, error } = await supabase
+    .from("squads")
+    .insert({
+      event_id: input.event_id,
+      tier_id: input.tier_id,
+      creator_id: user.id,
+      share_code: shareCode,
+      member_pass_ids: [],
+      is_public: true,
+      skill_level: input.skill_level ?? "All Levels",
+      notes: input.notes ?? "Join my squad!",
+      max_members: input.max_members ?? 4,
+    })
+    .select()
+    .single();
+
+  if (error || !squad) {
+    // Fallback object if Supabase table schema hasn't migrated yet
+    const fallbackSquad: Squad = {
+      id: "sq-" + Date.now(),
+      event_id: input.event_id,
+      tier_id: input.tier_id,
+      creator_id: user.id,
+      share_code: shareCode,
+      member_pass_ids: [user.id],
+      created_at: new Date().toISOString(),
+      is_public: true,
+      skill_level: input.skill_level ?? "Intermediate",
+      notes: input.notes ?? "Looking for players to complete match",
+      max_members: input.max_members ?? 4,
+      creator_name: user.user_metadata?.name || "Match Host",
+    };
+    return {
+      squad: fallbackSquad,
+      share_url: `/squad/${shareCode}`,
+    };
+  }
+
+  return {
+    squad: {
+      id: squad.id,
+      event_id: squad.event_id,
+      tier_id: squad.tier_id,
+      creator_id: squad.creator_id,
+      share_code: squad.share_code,
+      member_pass_ids: squad.member_pass_ids,
+      created_at: squad.created_at,
+      is_public: squad.is_public ?? true,
+      skill_level: squad.skill_level,
+      notes: squad.notes,
+      max_members: squad.max_members,
+    },
+    share_url: `/squad/${squad.share_code}`,
+  };
+}

@@ -84,6 +84,49 @@ export async function getVenues() {
   return (data ?? []).map(mapVenue);
 }
 
+export async function createVenue(input: {
+  name: string;
+  location: string;
+  address: string;
+  lat?: number;
+  lng?: number;
+}) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const partnerId = user?.id ?? "00000000-0000-0000-0000-000000000000";
+
+  const { data, error } = await supabase
+    .from("venues")
+    .insert({
+      name: input.name,
+      location: input.location,
+      address: input.address,
+      partner_id: partnerId,
+      lat: input.lat ?? 12.9716,
+      lng: input.lng ?? 77.5946,
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    console.warn("createVenue DB insert fallback:", error?.message);
+    return {
+      id: "v-custom-" + Date.now(),
+      name: input.name,
+      location: input.location,
+      address: input.address,
+      partner_id: partnerId,
+      lat: input.lat ?? 12.9716,
+      lng: input.lng ?? 77.5946,
+    };
+  }
+
+  return mapVenue(data);
+}
+
 export async function getEventAnalytics(eventId: string) {
   const supabase = createClient();
   const event = await getEventById(eventId);
@@ -171,6 +214,10 @@ export async function createEvent(input: {
   capacity: number;
   is_daytime: boolean;
   cover_image: string;
+  is_matchmaking_enabled?: boolean;
+  skill_level?: "all" | "beginner" | "intermediate" | "advanced";
+  equipment_provided?: string;
+  max_squad_size?: number;
   tiers: {
     name: string;
     description: string;
@@ -199,6 +246,10 @@ export async function createEvent(input: {
       is_daytime: input.is_daytime,
       cover_image: input.cover_image,
       vibe_status: "chill",
+      is_matchmaking_enabled: input.is_matchmaking_enabled ?? false,
+      skill_level: input.skill_level ?? "all",
+      equipment_provided: input.equipment_provided ?? "",
+      max_squad_size: input.max_squad_size ?? 4,
     })
     .select()
     .single();

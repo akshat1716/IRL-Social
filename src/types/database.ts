@@ -1,11 +1,17 @@
 export type UserRole = "user" | "partner" | "door_staff";
 
 export type EventCategory =
+  | "badminton"
+  | "football"
+  | "pickleball"
+  | "cricket"
+  | "basketball"
   | "run_club"
+  | "board_games"
+  | "sports"
   | "nightlife"
   | "karaoke"
-  | "mixer"
-  | "board_games";
+  | "mixer";
 
 export type VibeStatus = "chill" | "warming_up" | "peak_vibe" | "sold_out";
 
@@ -48,6 +54,10 @@ export interface Event {
   is_daytime: boolean;
   venue?: Venue;
   ticket_tiers?: TicketTier[];
+  is_matchmaking_enabled?: boolean;
+  skill_level?: "all" | "beginner" | "intermediate" | "advanced";
+  equipment_provided?: string;
+  max_squad_size?: number;
 }
 
 export interface TicketTier {
@@ -91,6 +101,11 @@ export interface Squad {
   share_code: string;
   member_pass_ids: string[];
   created_at: string;
+  is_public?: boolean;
+  skill_level?: string;
+  notes?: string;
+  max_members?: number;
+  creator_name?: string;
 }
 
 export type ScanResult =
