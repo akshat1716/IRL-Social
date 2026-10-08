@@ -9,10 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  createPass,
-  createSquadPassCheckout,
-} from "@/lib/actions/tickets";
 import { PaymentSelector } from "./payment-selector";
 import { useCheckoutStore } from "@/lib/store";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -23,6 +19,12 @@ interface CheckoutModalProps {
   event: Event;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+interface RazorpayResponse {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
 }
 
 export function CheckoutModal({
@@ -53,16 +55,37 @@ export function CheckoutModal({
     mutationFn: async () => {
       if (!selectedTierId || !selectedTier) throw new Error("Select a pass");
 
-      const totalAmount = selectedTier.price * quantity;
+      // Path 1: Free Tier Claim (/api/payments/claim-free)
+      if (selectedTier.price === 0) {
+        const claimRes = await fetch("/api/payments/claim-free", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_id: event.id,
+            tier_id: selectedTierId,
+            squad_mode: squadMode,
+          }),
+        });
 
-      // Call Razorpay Order Creation API
+        const claimData = await claimRes.json();
+        if (!claimRes.ok || !claimData.success) {
+          throw new Error(claimData.error || "Failed to claim free pass");
+        }
+
+        if (claimData.share_url) {
+          setSquadLink(`${window.location.origin}${claimData.share_url}`);
+        }
+        return claimData.pass || claimData.passes;
+      }
+
+      // Path 2: Paid Tier Order Creation (/api/payments/create-order)
       const orderRes = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: totalAmount,
           event_id: event.id,
           tier_id: selectedTierId,
+          quantity,
           squad_mode: squadMode,
         }),
       });
@@ -70,10 +93,10 @@ export function CheckoutModal({
       const orderData = await orderRes.json();
 
       if (orderRes.status !== 200 || orderData.error) {
-        throw new Error(orderData.error || "Failed to create order");
+        throw new Error(orderData.error || "Failed to create payment order");
       }
 
-      // If simulated key/local fallback: verify immediately
+      // Simulation mode decision made strictly by server
       if (orderData.is_simulated) {
         const verifyRes = await fetch("/api/payments/verify", {
           method: "POST",
@@ -82,11 +105,6 @@ export function CheckoutModal({
             razorpay_order_id: orderData.id,
             razorpay_payment_id: "pay_sim_" + Date.now(),
             razorpay_signature: "sig_sim",
-            event_id: event.id,
-            tier_id: selectedTierId,
-            squad_mode: squadMode,
-            quantity,
-            is_simulated: true,
           }),
         });
 
@@ -101,7 +119,7 @@ export function CheckoutModal({
         return verifyData.pass || verifyData.passes;
       }
 
-      // Live Razorpay Checkout Integration
+      // Live Razorpay Gateway Flow
       return new Promise((resolve, reject) => {
         const loadScript = (src: string) => {
           return new Promise((res) => {
@@ -115,7 +133,8 @@ export function CheckoutModal({
         };
 
         loadScript("https://checkout.razorpay.com/v1/checkout.js").then((loaded) => {
-          if (!loaded || !(window as any).Razorpay) {
+          const win = window as unknown as { Razorpay: new (opts: unknown) => { open: () => void } };
+          if (!loaded || !win.Razorpay) {
             return reject(new Error("Failed to load Razorpay Payment Gateway"));
           }
 
@@ -127,7 +146,7 @@ export function CheckoutModal({
             description: `${event.title} — ${selectedTier.name}`,
             order_id: orderData.id,
             theme: { color: "#a855f7" },
-            handler: async (response: any) => {
+            handler: async (response: RazorpayResponse) => {
               try {
                 const verifyRes = await fetch("/api/payments/verify", {
                   method: "POST",
@@ -136,10 +155,6 @@ export function CheckoutModal({
                     razorpay_order_id: response.razorpay_order_id,
                     razorpay_payment_id: response.razorpay_payment_id,
                     razorpay_signature: response.razorpay_signature,
-                    event_id: event.id,
-                    tier_id: selectedTierId,
-                    squad_mode: squadMode,
-                    quantity,
                   }),
                 });
 
@@ -150,7 +165,7 @@ export function CheckoutModal({
                   }
                   resolve(verifyData.pass || verifyData.passes);
                 } else {
-                  reject(new Error(verifyData.error || "Payment signature error"));
+                  reject(new Error(verifyData.error || "Payment signature mismatch"));
                 }
               } catch (err) {
                 reject(err);
@@ -163,7 +178,7 @@ export function CheckoutModal({
             },
           };
 
-          const rzp = new (window as any).Razorpay(options);
+          const rzp = new win.Razorpay(options);
           rzp.open();
         });
       });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Users, Zap, Loader2, Check } from "lucide-react";
+import { X, Zap, Loader2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea, Select } from "@/components/ui/input";
 import type { Event, Squad } from "@/types/database";

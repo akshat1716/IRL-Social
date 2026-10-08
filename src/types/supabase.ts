@@ -27,6 +27,8 @@ export interface Database {
           phone?: string | null;
           avatar_url?: string | null;
           role?: "user" | "partner" | "door_staff";
+          created_at?: string;
+          updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
         Relationships: [];
@@ -60,7 +62,9 @@ export interface Database {
             | "nightlife"
             | "karaoke"
             | "mixer"
-            | "board_games";
+            | "board_games"
+            | "badminton"
+            | "football";
           cover_image: string;
           start_time: string;
           end_time: string;
@@ -97,6 +101,32 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["ticket_tiers"]["Insert"]>;
         Relationships: [];
       };
+      payment_orders: {
+        Row: {
+          id: string;
+          razorpay_order_id: string;
+          user_id: string;
+          event_id: string;
+          tier_id: string;
+          quantity: number;
+          amount_paise: number;
+          squad_mode: boolean;
+          status: "created" | "paid" | "failed";
+          razorpay_payment_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["payment_orders"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & {
+          id?: string;
+          status?: "created" | "paid" | "failed";
+          razorpay_payment_id?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["payment_orders"]["Insert"]>;
+        Relationships: [];
+      };
       squads: {
         Row: {
           id: string;
@@ -106,6 +136,10 @@ export interface Database {
           share_code: string;
           member_pass_ids: string[];
           created_at: string;
+          is_public?: boolean;
+          skill_level?: string | null;
+          notes?: string | null;
+          max_members?: number | null;
         };
         Insert: Omit<
           Database["public"]["Tables"]["squads"]["Row"],
@@ -124,6 +158,7 @@ export interface Database {
           status: "valid" | "checked_in" | "cancelled";
           redeemed_amount: number;
           squad_id: string | null;
+          order_id: string | null;
           created_at: string;
         };
         Insert: Omit<
@@ -134,6 +169,8 @@ export interface Database {
           qr_code_hash?: string;
           status?: "valid" | "checked_in" | "cancelled";
           redeemed_amount?: number;
+          squad_id?: string | null;
+          order_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["passes"]["Insert"]>;
         Relationships: [];
@@ -153,8 +190,35 @@ export interface Database {
         Relationships: [];
       };
     };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Views: {
+      public_profiles: {
+        Row: {
+          id: string;
+          name: string;
+          avatar_url: string | null;
+          created_at: string;
+        };
+      };
+    };
+    Functions: {
+      issue_pass_atomic: {
+        Args: {
+          p_event_id: string;
+          p_user_id: string;
+          p_tier_id: string;
+          p_squad_id?: string | null;
+          p_order_id?: string | null;
+        };
+        Returns: Database["public"]["Tables"]["passes"]["Row"][];
+      };
+      staff_can_scan_event: {
+        Args: {
+          p_staff_id: string;
+          p_event_id: string;
+        };
+        Returns: boolean;
+      };
+    };
     Enums: Record<string, never>;
   };
 }
@@ -163,6 +227,7 @@ export type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 export type VenueRow = Database["public"]["Tables"]["venues"]["Row"];
 export type EventRow = Database["public"]["Tables"]["events"]["Row"];
 export type TicketTierRow = Database["public"]["Tables"]["ticket_tiers"]["Row"];
+export type PaymentOrderRow = Database["public"]["Tables"]["payment_orders"]["Row"];
 export type PassRow = Database["public"]["Tables"]["passes"]["Row"];
 export type SquadRow = Database["public"]["Tables"]["squads"]["Row"];
 export type CheckInRow = Database["public"]["Tables"]["check_ins"]["Row"];
