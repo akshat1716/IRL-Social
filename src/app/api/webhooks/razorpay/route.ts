@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { verifyWebhookSignature } from "@/lib/payments";
-import { createSquadPassCheckoutInternal } from "@/lib/actions/tickets";
+import { finalizePaidOrderInternal } from "@/lib/server/tickets-internal";
 
 export async function POST(req: Request) {
   try {
@@ -55,46 +55,13 @@ export async function POST(req: Request) {
       if (orderId) {
         const { data: order } = await adminClient
           .from("payment_orders")
-          .select("*")
+          .select("id")
           .eq("razorpay_order_id", orderId)
-          .single();
+          .maybeSingle();
 
-        if (order && order.status === "created") {
-          // Mark paid
-          await adminClient
-            .from("payment_orders")
-            .update({
-              status: "paid",
-              razorpay_payment_id: paymentId || order.razorpay_payment_id,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", order.id);
-
-          // Check if passes have already been issued
-          const { data: existingPasses } = await adminClient
-            .from("passes")
-            .select("id")
-            .eq("order_id", order.id);
-
-          if (!existingPasses || existingPasses.length === 0) {
-            if (order.squad_mode) {
-              await createSquadPassCheckoutInternal({
-                user_id: order.user_id,
-                event_id: order.event_id,
-                tier_id: order.tier_id,
-                order_id: order.id,
-              });
-            } else {
-              for (let i = 0; i < order.quantity; i++) {
-                await adminClient.rpc("issue_pass_atomic", {
-                  p_event_id: order.event_id,
-                  p_user_id: order.user_id,
-                  p_tier_id: order.tier_id,
-                  p_order_id: order.id,
-                });
-              }
-            }
-          }
+        if (order) {
+          // Atomically finalize order & issue passes (or recover existing passes if already processed)
+          await finalizePaidOrderInternal(order.id, paymentId);
         }
       }
     }

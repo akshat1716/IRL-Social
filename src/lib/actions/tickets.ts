@@ -3,19 +3,16 @@
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import {
   mapEvent,
-  mapPass,
-  mapProfile,
   mapTicketTier,
 } from "@/lib/supabase/mappers";
 import type { Pass, Squad } from "@/types/database";
 import type {
   EventRow,
-  PassRow,
-  ProfileRow,
   TicketTierRow,
   VenueRow,
 } from "@/types/supabase";
 import { randomBytes } from "crypto";
+import { hydratePassInternal, issuePassInternal } from "@/lib/server/tickets-internal";
 
 async function requireUser() {
   const supabase = createClient();
@@ -25,65 +22,15 @@ async function requireUser() {
   } = await supabase.auth.getUser();
 
   if (error || !user) {
-    throw new Error("Please sign in to complete checkout.");
-  }
-
-  const { data: existingProfile } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (!existingProfile) {
-    const adminClient = createAdminClient();
-    const { error: profileError } = await adminClient.from("profiles").upsert(
-      {
-        id: user.id,
-        name: user.user_metadata?.name || user.email?.split("@")[0] || "User",
-        email: user.email || "",
-        avatar_url: user.user_metadata?.avatar_url || null,
-        role: "user",
-      },
-      { onConflict: "id" }
-    );
-
-    if (profileError) {
-      console.error("Failed to ensure profile record:", profileError.message);
-    }
+    throw new Error("Authentication required.");
   }
 
   return { supabase, user };
 }
 
-export async function hydratePassInternal(row: PassRow): Promise<Pass> {
-  const adminClient = createAdminClient();
-
-  const [{ data: eventData }, { data: tier }, { data: profile }] =
-    await Promise.all([
-      adminClient
-        .from("events")
-        .select("*, venues(*), ticket_tiers(*)")
-        .eq("id", row.event_id)
-        .single(),
-      adminClient.from("ticket_tiers").select("*").eq("id", row.tier_id).single(),
-      adminClient.from("profiles").select("*").eq("id", row.user_id).single(),
-    ]);
-
-  const eventRow = eventData as EventRow & {
-    venues: VenueRow | null;
-    ticket_tiers: TicketTierRow[];
-  } | null;
-
-  return mapPass(
-    row,
-    eventRow
-      ? mapEvent(eventRow, eventRow.venues, eventRow.ticket_tiers)
-      : undefined,
-    tier ? mapTicketTier(tier) : undefined,
-    profile ? mapProfile(profile as ProfileRow) : undefined
-  );
-}
-
+/**
+ * Returns all passes owned by the authenticated user.
+ */
 export async function getUserPasses(): Promise<Pass[]> {
   try {
     const { supabase, user } = await requireUser();
@@ -105,128 +52,9 @@ export async function getUserPasses(): Promise<Pass[]> {
   }
 }
 
-export async function createPass(input: {
-  event_id: string;
-  tier_id: string;
-  squad_id?: string;
-  order_id?: string;
-}): Promise<Pass> {
-  const { user } = await requireUser();
-  const adminClient = createAdminClient();
-
-  const { data: passData, error: rpcError } = await adminClient.rpc(
-    "issue_pass_atomic",
-    {
-      p_event_id: input.event_id,
-      p_user_id: user.id,
-      p_tier_id: input.tier_id,
-      p_squad_id: input.squad_id ?? null,
-      p_order_id: input.order_id ?? null,
-    }
-  );
-
-  if (rpcError || !passData) {
-    throw new Error(rpcError?.message ?? "Failed to issue pass");
-  }
-
-  const passRow = (Array.isArray(passData) ? passData[0] : passData) as PassRow;
-
-  if (input.squad_id) {
-    const { data: squad } = await adminClient
-      .from("squads")
-      .select("member_pass_ids")
-      .eq("id", input.squad_id)
-      .single();
-
-    if (squad) {
-      await adminClient
-        .from("squads")
-        .update({
-          member_pass_ids: [...squad.member_pass_ids, passRow.id],
-        })
-        .eq("id", input.squad_id);
-    }
-  }
-
-  return hydratePassInternal(passRow);
-}
-
-export async function createSquadPassCheckoutInternal(input: {
-  user_id: string;
-  event_id: string;
-  tier_id: string;
-  order_id?: string;
-}): Promise<{ squad: Squad; pass: Pass; share_url: string }> {
-  const adminClient = createAdminClient();
-  const shareCode = randomBytes(4).toString("hex").toUpperCase();
-
-  const { data: squad, error: squadError } = await adminClient
-    .from("squads")
-    .insert({
-      event_id: input.event_id,
-      tier_id: input.tier_id,
-      creator_id: input.user_id,
-      share_code: shareCode,
-      member_pass_ids: [],
-    })
-    .select()
-    .single();
-
-  if (squadError || !squad) {
-    throw new Error(squadError?.message ?? "Failed to create squad");
-  }
-
-  const { data: passData, error: rpcError } = await adminClient.rpc(
-    "issue_pass_atomic",
-    {
-      p_event_id: input.event_id,
-      p_user_id: input.user_id,
-      p_tier_id: input.tier_id,
-      p_squad_id: squad.id,
-      p_order_id: input.order_id ?? null,
-    }
-  );
-
-  if (rpcError || !passData) {
-    throw new Error(rpcError?.message ?? "Failed to issue squad pass");
-  }
-
-  const passRow = (Array.isArray(passData) ? passData[0] : passData) as PassRow;
-
-  await adminClient
-    .from("squads")
-    .update({ member_pass_ids: [passRow.id] })
-    .eq("id", squad.id);
-
-  const pass = await hydratePassInternal(passRow);
-
-  return {
-    squad: {
-      id: squad.id,
-      event_id: squad.event_id,
-      tier_id: squad.tier_id,
-      creator_id: squad.creator_id,
-      share_code: squad.share_code,
-      member_pass_ids: [passRow.id],
-      created_at: squad.created_at,
-    },
-    pass,
-    share_url: `/squad/${squad.share_code}`,
-  };
-}
-
-export async function createSquadPassCheckout(input: {
-  event_id: string;
-  tier_id: string;
-}): Promise<{ squad: Squad; pass: Pass; share_url: string }> {
-  const { user } = await requireUser();
-  return createSquadPassCheckoutInternal({
-    user_id: user.id,
-    event_id: input.event_id,
-    tier_id: input.tier_id,
-  });
-}
-
+/**
+ * Fetches squad details and event/tier metadata by share code.
+ */
 export async function getSquadByCode(code: string) {
   const adminClient = createAdminClient();
 
@@ -263,17 +91,65 @@ export async function getSquadByCode(code: string) {
   };
 }
 
+/**
+ * Allows an authenticated user to join a squad.
+ * Server-authoritative checks:
+ * 1. Requires authenticated caller.
+ * 2. Verifies squad exists.
+ * 3. Enforces squad capacity.
+ * 4. Checks if tier is paid; if paid, verifies squad creator has a verified paid order.
+ */
 export async function joinSquad(code: string): Promise<Pass> {
+  const { user } = await requireUser();
   const squad = await getSquadByCode(code);
   if (!squad) throw new Error("Squad not found");
 
-  return createPass({
+  const adminClient = createAdminClient();
+
+  // Fetch tier details from database
+  const { data: tier } = await adminClient
+    .from("ticket_tiers")
+    .select("*")
+    .eq("id", squad.tier_id)
+    .single();
+
+  if (!tier) throw new Error("Ticket tier for squad not found");
+
+  // Check capacity
+  const currentMembers = squad.member_pass_ids ?? [];
+  const maxMembers = squad.max_members ?? 4;
+  if (currentMembers.length >= maxMembers) {
+    throw new Error("Squad is full");
+  }
+
+  // Check if paid tier: requires verified paid order from creator
+  if (tier.price > 0) {
+    const { data: order } = await adminClient
+      .from("payment_orders")
+      .select("status")
+      .eq("user_id", squad.creator_id)
+      .eq("tier_id", squad.tier_id)
+      .eq("status", "paid")
+      .limit(1)
+      .maybeSingle();
+
+    if (!order) {
+      throw new Error("Cannot join squad: Creator has not completed payment");
+    }
+  }
+
+  // Issue squad member pass server-side
+  return issuePassInternal({
     event_id: squad.event_id,
+    user_id: user.id,
     tier_id: squad.tier_id,
     squad_id: squad.id,
   });
 }
 
+/**
+ * Returns public open squads for an event.
+ */
 export async function getPublicSquadsForEvent(eventId: string): Promise<Squad[]> {
   const adminClient = createAdminClient();
 
@@ -321,6 +197,10 @@ export async function getPublicSquadsForEvent(eventId: string): Promise<Squad[]>
   }));
 }
 
+/**
+ * Creates a public open squad for free tiers only.
+ * Paid tier squads must be created via payment flow.
+ */
 export async function createPublicOpenSquad(input: {
   event_id: string;
   tier_id: string;
@@ -330,6 +210,18 @@ export async function createPublicOpenSquad(input: {
 }): Promise<{ squad: Squad; share_url: string }> {
   const { user } = await requireUser();
   const adminClient = createAdminClient();
+
+  // Enforce free tier check
+  const { data: tier } = await adminClient
+    .from("ticket_tiers")
+    .select("price")
+    .eq("id", input.tier_id)
+    .single();
+
+  if (!tier || tier.price > 0) {
+    throw new Error("Public open squads can only be created for free event tiers. For paid tiers, please purchase a squad pass.");
+  }
+
   const shareCode = randomBytes(4).toString("hex").toUpperCase();
 
   const { data: squad, error } = await adminClient

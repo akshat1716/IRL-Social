@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
-import { createSquadPassCheckoutInternal, hydratePassInternal } from "@/lib/actions/tickets";
+import { createSquadPassCheckoutInternal, hydratePassInternal } from "@/lib/server/tickets-internal";
 import type { PassRow, TicketTierRow } from "@/types/supabase";
 
 export async function POST(req: Request) {

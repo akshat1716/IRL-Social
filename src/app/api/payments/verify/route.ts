@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { isSimulationMode, verifyRazorpaySignature } from "@/lib/payments";
-import {
-  createSquadPassCheckoutInternal,
-  hydratePassInternal,
-} from "@/lib/actions/tickets";
-import type { PassRow } from "@/types/supabase";
+import { finalizePaidOrderInternal } from "@/lib/server/tickets-internal";
 
 export async function POST(req: Request) {
   try {
@@ -50,25 +46,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3. Idempotency Check: if order is already paid, return already-issued passes
-    if (order.status === "paid") {
-      const { data: existingPassesRows } = await adminClient
-        .from("passes")
-        .select("*")
-        .eq("order_id", order.id);
-
-      const existingPasses = await Promise.all(
-        (existingPassesRows ?? []).map((row: PassRow) => hydratePassInternal(row))
-      );
-
-      return NextResponse.json({
-        success: true,
-        already_paid: true,
-        passes: existingPasses,
-        pass: existingPasses[0] || null,
-      });
-    }
-
     if (order.status === "failed") {
       return NextResponse.json(
         { error: "This payment order has been marked as failed" },
@@ -76,7 +53,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4. Verification logic (simulated vs live HMAC)
+    // 3. Verification logic (simulated vs live HMAC)
     const isSimulatedOrder = order.razorpay_order_id.startsWith("order_sim_");
     const simulationAllowed = isSimulationMode();
 
@@ -112,69 +89,15 @@ export async function POST(req: Request) {
       }
     }
 
-    // 5. Mark order paid atomically
+    // 4. Race-safe, atomic order finalization & pass issuance
     const paymentIdToSave = razorpay_payment_id || `pay_sim_${Date.now()}`;
-    const { error: updateError } = await adminClient
-      .from("payment_orders")
-      .update({
-        status: "paid",
-        razorpay_payment_id: paymentIdToSave,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", order.id)
-      .eq("status", "created");
+    const passes = await finalizePaidOrderInternal(order.id, paymentIdToSave);
 
-    if (updateError) {
-      console.error("Failed to update payment order status:", updateError.message);
-      return NextResponse.json(
-        { error: "Failed to update payment status" },
-        { status: 500 }
-      );
-    }
-
-    // 6. Issue passes using values stored in order
-    if (order.squad_mode) {
-      const result = await createSquadPassCheckoutInternal({
-        user_id: user.id,
-        event_id: order.event_id,
-        tier_id: order.tier_id,
-        order_id: order.id,
-      });
-
-      return NextResponse.json({
-        success: true,
-        pass: result.pass,
-        share_url: result.share_url,
-      });
-    } else {
-      const passes = [];
-      for (let i = 0; i < order.quantity; i++) {
-        const { data: passData, error: rpcError } = await adminClient.rpc(
-          "issue_pass_atomic",
-          {
-            p_event_id: order.event_id,
-            p_user_id: user.id,
-            p_tier_id: order.tier_id,
-            p_order_id: order.id,
-          }
-        );
-
-        if (rpcError || !passData) {
-          console.error("RPC issue_pass_atomic error:", rpcError?.message);
-          throw new Error(rpcError?.message || "Failed to issue pass");
-        }
-
-        const passRow = (Array.isArray(passData) ? passData[0] : passData) as PassRow;
-        const pass = await hydratePassInternal(passRow);
-        passes.push(pass);
-      }
-
-      return NextResponse.json({
-        success: true,
-        passes,
-        pass: passes[0] || null,
-      });
-    }
+    return NextResponse.json({
+      success: true,
+      passes,
+      pass: passes[0] || null,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to verify payment and issue pass";
     console.error("Razorpay Verification Error:", error);

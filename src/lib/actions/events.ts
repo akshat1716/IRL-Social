@@ -101,7 +101,10 @@ export async function createVenue(input: {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const partnerId = user?.id ?? "00000000-0000-0000-0000-000000000000";
+  if (!user) {
+    throw new Error("Authentication required to create venue");
+  }
+
   const adminClient = createAdminClient();
 
   const { data, error } = await adminClient
@@ -110,7 +113,7 @@ export async function createVenue(input: {
       name: input.name,
       location: input.location,
       address: input.address,
-      partner_id: partnerId,
+      partner_id: user.id,
       lat: input.lat ?? 26.8467,
       lng: input.lng ?? 80.9462,
     })
@@ -124,7 +127,7 @@ export async function createVenue(input: {
       name: input.name,
       location: input.location,
       address: input.address,
-      partner_id: partnerId,
+      partner_id: user.id,
       lat: input.lat ?? 26.8467,
       lng: input.lng ?? 80.9462,
     };
@@ -155,7 +158,27 @@ export async function createEvent(input: {
     max_quantity: number;
   }[];
 }): Promise<Event | null> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("Authentication required to create event");
+  }
+
   const adminClient = createAdminClient();
+
+  // Verify venue ownership or partner role
+  const { data: venue } = await adminClient
+    .from("venues")
+    .select("partner_id")
+    .eq("id", input.venue_id)
+    .maybeSingle();
+
+  if (venue && venue.partner_id !== user.id) {
+    throw new Error("Unauthorized: You do not own this venue");
+  }
 
   const { data: event, error: eventError } = await adminClient
     .from("events")
@@ -205,9 +228,23 @@ export async function createEvent(input: {
 }
 
 export async function getEventAnalytics(eventId: string) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("Authentication required to view analytics");
+  }
+
   const adminClient = createAdminClient();
   const event = await getEventById(eventId);
   if (!event) return null;
+
+  // Verify venue ownership
+  if (event.venue && event.venue.partner_id !== user.id) {
+    throw new Error("Unauthorized: You do not own the venue for this event");
+  }
 
   const { data: passesRows } = await adminClient
     .from("passes")
@@ -244,3 +281,4 @@ export async function getEventAnalytics(eventId: string) {
     recentCheckIns: checkInsList.slice(-10),
   };
 }
+
