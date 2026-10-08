@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import {
   mapEvent,
   mapPass,
@@ -35,7 +35,8 @@ async function requireUser() {
     .maybeSingle();
 
   if (!existingProfile) {
-    const { error: profileError } = await supabase.from("profiles").upsert(
+    const adminClient = createAdminClient();
+    const { error: profileError } = await adminClient.from("profiles").upsert(
       {
         id: user.id,
         name: user.user_metadata?.name || user.email?.split("@")[0] || "User",
@@ -54,18 +55,18 @@ async function requireUser() {
   return { supabase, user };
 }
 
-async function hydratePass(row: PassRow): Promise<Pass> {
-  const supabase = createClient();
+export async function hydratePassInternal(row: PassRow): Promise<Pass> {
+  const adminClient = createAdminClient();
 
   const [{ data: eventData }, { data: tier }, { data: profile }] =
     await Promise.all([
-      supabase
+      adminClient
         .from("events")
         .select("*, venues(*), ticket_tiers(*)")
         .eq("id", row.event_id)
         .single(),
-      supabase.from("ticket_tiers").select("*").eq("id", row.tier_id).single(),
-      supabase.from("profiles").select("*").eq("id", row.user_id).single(),
+      adminClient.from("ticket_tiers").select("*").eq("id", row.tier_id).single(),
+      adminClient.from("profiles").select("*").eq("id", row.user_id).single(),
     ]);
 
   const eventRow = eventData as EventRow & {
@@ -98,7 +99,7 @@ export async function getUserPasses(): Promise<Pass[]> {
       return [];
     }
 
-    return Promise.all((data ?? []).map((row) => hydratePass(row)));
+    return Promise.all((data ?? []).map((row) => hydratePassInternal(row)));
   } catch {
     return [];
   }
@@ -108,78 +109,63 @@ export async function createPass(input: {
   event_id: string;
   tier_id: string;
   squad_id?: string;
+  order_id?: string;
 }): Promise<Pass> {
-  const { supabase, user } = await requireUser();
+  const { user } = await requireUser();
+  const adminClient = createAdminClient();
 
-  if (!user || !user.id) {
-    throw new Error("Please sign in to complete checkout.");
+  const { data: passData, error: rpcError } = await adminClient.rpc(
+    "issue_pass_atomic",
+    {
+      p_event_id: input.event_id,
+      p_user_id: user.id,
+      p_tier_id: input.tier_id,
+      p_squad_id: input.squad_id ?? null,
+      p_order_id: input.order_id ?? null,
+    }
+  );
+
+  if (rpcError || !passData) {
+    throw new Error(rpcError?.message ?? "Failed to issue pass");
   }
 
-  const { data: tier, error: tierError } = await supabase
-    .from("ticket_tiers")
-    .select("*")
-    .eq("id", input.tier_id)
-    .single();
-
-  if (tierError || !tier) {
-    throw new Error("Ticket tier not found");
-  }
-
-  if (tier.sold_count >= tier.max_quantity) {
-    throw new Error("Tier sold out");
-  }
-
-  const { data: pass, error: passError } = await supabase
-    .from("passes")
-    .insert({
-      event_id: input.event_id,
-      user_id: user.id,
-      tier_id: input.tier_id,
-      squad_id: input.squad_id ?? null,
-      status: "valid",
-      redeemed_amount: 0,
-    })
-    .select()
-    .single();
-
-  if (passError || !pass) {
-    throw new Error(passError?.message ?? "Failed to create pass");
-  }
+  const passRow = (Array.isArray(passData) ? passData[0] : passData) as PassRow;
 
   if (input.squad_id) {
-    const { data: squad } = await supabase
+    const { data: squad } = await adminClient
       .from("squads")
       .select("member_pass_ids")
       .eq("id", input.squad_id)
       .single();
 
     if (squad) {
-      await supabase
+      await adminClient
         .from("squads")
         .update({
-          member_pass_ids: [...squad.member_pass_ids, pass.id],
+          member_pass_ids: [...squad.member_pass_ids, passRow.id],
         })
         .eq("id", input.squad_id);
     }
   }
 
-  return hydratePass(pass);
+  return hydratePassInternal(passRow);
 }
 
-export async function createSquadPassCheckout(input: {
+export async function createSquadPassCheckoutInternal(input: {
+  user_id: string;
   event_id: string;
   tier_id: string;
+  order_id?: string;
 }): Promise<{ squad: Squad; pass: Pass; share_url: string }> {
-  const { supabase, user } = await requireUser();
-
+  const adminClient = createAdminClient();
   const shareCode = randomBytes(4).toString("hex").toUpperCase();
 
-  const { data: squad, error: squadError } = await supabase
+  const { data: squad, error: squadError } = await adminClient
     .from("squads")
     .insert({
       event_id: input.event_id,
       tier_id: input.tier_id,
-      creator_id: user.id,
+      creator_id: input.user_id,
       share_code: shareCode,
       member_pass_ids: [],
     })
@@ -190,11 +176,29 @@ export async function createSquadPassCheckout(input: {
     throw new Error(squadError?.message ?? "Failed to create squad");
   }
 
-  const pass = await createPass({
-    event_id: input.event_id,
-    tier_id: input.tier_id,
-    squad_id: squad.id,
-  });
+  const { data: passData, error: rpcError } = await adminClient.rpc(
+    "issue_pass_atomic",
+    {
+      p_event_id: input.event_id,
+      p_user_id: input.user_id,
+      p_tier_id: input.tier_id,
+      p_squad_id: squad.id,
+      p_order_id: input.order_id ?? null,
+    }
+  );
+
+  if (rpcError || !passData) {
+    throw new Error(rpcError?.message ?? "Failed to issue squad pass");
+  }
+
+  const passRow = (Array.isArray(passData) ? passData[0] : passData) as PassRow;
+
+  await adminClient
+    .from("squads")
+    .update({ member_pass_ids: [passRow.id] })
+    .eq("id", squad.id);
+
+  const pass = await hydratePassInternal(passRow);
 
   return {
     squad: {
@@ -203,7 +207,7 @@ export async function createSquadPassCheckout(input: {
       tier_id: squad.tier_id,
       creator_id: squad.creator_id,
       share_code: squad.share_code,
-      member_pass_ids: squad.member_pass_ids,
+      member_pass_ids: [passRow.id],
       created_at: squad.created_at,
     },
     pass,
@@ -211,10 +215,22 @@ export async function createSquadPassCheckout(input: {
   };
 }
 
-export async function getSquadByCode(code: string) {
-  const supabase = createClient();
+export async function createSquadPassCheckout(input: {
+  event_id: string;
+  tier_id: string;
+}): Promise<{ squad: Squad; pass: Pass; share_url: string }> {
+  const { user } = await requireUser();
+  return createSquadPassCheckoutInternal({
+    user_id: user.id,
+    event_id: input.event_id,
+    tier_id: input.tier_id,
+  });
+}
 
-  const { data: squad, error } = await supabase
+export async function getSquadByCode(code: string) {
+  const adminClient = createAdminClient();
+
+  const { data: squad, error } = await adminClient
     .from("squads")
     .select("*")
     .eq("share_code", code)
@@ -222,13 +238,13 @@ export async function getSquadByCode(code: string) {
 
   if (error || !squad) return null;
 
-  const eventRes = await supabase
+  const eventRes = await adminClient
     .from("events")
     .select("*, venues(*)")
     .eq("id", squad.event_id)
     .single();
 
-  const { data: tier } = await supabase
+  const { data: tier } = await adminClient
     .from("ticket_tiers")
     .select("*")
     .eq("id", squad.tier_id)
@@ -249,7 +265,6 @@ export async function getSquadByCode(code: string) {
 
 export async function joinSquad(code: string): Promise<Pass> {
   const squad = await getSquadByCode(code);
-
   if (!squad) throw new Error("Squad not found");
 
   return createPass({
@@ -260,19 +275,37 @@ export async function joinSquad(code: string): Promise<Pass> {
 }
 
 export async function getPublicSquadsForEvent(eventId: string): Promise<Squad[]> {
-  const supabase = createClient();
+  const adminClient = createAdminClient();
 
-  const { data, error } = await supabase
+  const { data, error } = await adminClient
     .from("squads")
     .select("*, profiles:creator_id(name)")
     .eq("event_id", eventId);
 
   if (error || !data) {
-    // Return mock open squads if DB table is empty or offline
+    if (process.env.NODE_ENV !== "production") {
+      const { mockSquads } = await import("@/lib/mock-data");
+      return mockSquads.filter((s) => s.event_id === eventId);
+    }
     return [];
   }
 
-  return data.map((s: any) => ({
+  type RawSquadJoin = {
+    id: string;
+    event_id: string;
+    tier_id: string;
+    creator_id: string;
+    share_code: string;
+    member_pass_ids?: string[];
+    created_at: string;
+    is_public?: boolean;
+    skill_level?: string;
+    notes?: string;
+    max_members?: number;
+    profiles?: { name?: string } | null;
+  };
+
+  return (data as RawSquadJoin[]).map((s) => ({
     id: s.id,
     event_id: s.event_id,
     tier_id: s.tier_id,
@@ -295,10 +328,11 @@ export async function createPublicOpenSquad(input: {
   notes?: string;
   max_members?: number;
 }): Promise<{ squad: Squad; share_url: string }> {
-  const { supabase, user } = await requireUser();
+  const { user } = await requireUser();
+  const adminClient = createAdminClient();
   const shareCode = randomBytes(4).toString("hex").toUpperCase();
 
-  const { data: squad, error } = await supabase
+  const { data: squad, error } = await adminClient
     .from("squads")
     .insert({
       event_id: input.event_id,
@@ -315,25 +349,7 @@ export async function createPublicOpenSquad(input: {
     .single();
 
   if (error || !squad) {
-    // Fallback object if Supabase table schema hasn't migrated yet
-    const fallbackSquad: Squad = {
-      id: "sq-" + Date.now(),
-      event_id: input.event_id,
-      tier_id: input.tier_id,
-      creator_id: user.id,
-      share_code: shareCode,
-      member_pass_ids: [user.id],
-      created_at: new Date().toISOString(),
-      is_public: true,
-      skill_level: input.skill_level ?? "Intermediate",
-      notes: input.notes ?? "Looking for players to complete match",
-      max_members: input.max_members ?? 4,
-      creator_name: user.user_metadata?.name || "Match Host",
-    };
-    return {
-      squad: fallbackSquad,
-      share_url: `/squad/${shareCode}`,
-    };
+    throw new Error(error?.message || "Failed to create public squad");
   }
 
   return {

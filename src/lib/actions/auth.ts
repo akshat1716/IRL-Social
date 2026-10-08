@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -28,7 +28,7 @@ export async function getCurrentUser() {
 
   const meta = user.user_metadata || {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const p = (profile as Record<string, any>) || {};
+  const p = (profile as unknown as Record<string, any>) || {};
 
   return {
     id: user.id,
@@ -60,7 +60,7 @@ export async function updateProfile(formData: {
     return { success: false, error: "Not logged in" };
   }
 
-  // Update auth metadata
+  // Update auth metadata (strictly sanitized, role cannot be updated here)
   const { error: updateError } = await supabase.auth.updateUser({
     data: {
       name: formData.name,
@@ -75,15 +75,17 @@ export async function updateProfile(formData: {
     return { success: false, error: updateError.message };
   }
 
-  // Best effort update profiles table
+  // Sync profile table name and avatar_url using admin client
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("profiles") as any).upsert({
-      id: user.id,
-      name: formData.name,
-      avatar_url: formData.avatar_url,
-      updated_at: new Date().toISOString(),
-    });
+    const adminClient = createAdminClient();
+    await adminClient
+      .from("profiles")
+      .update({
+        name: formData.name,
+        avatar_url: formData.avatar_url,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
   } catch (e) {
     console.error("Profiles table sync skipped:", e);
   }
@@ -103,25 +105,28 @@ export async function requestPartnerAccess() {
     return { success: false, error: "Authentication required" };
   }
 
-  // Upgrade user metadata role
-  const { error: updateError } = await supabase.auth.updateUser({
+  // Elevate user role safely via admin client
+  const adminClient = createAdminClient();
+
+  const { error: updateMetaError } = await supabase.auth.updateUser({
     data: { role: "partner" },
   });
 
-  if (updateError) {
-    return { success: false, error: updateError.message };
+  if (updateMetaError) {
+    return { success: false, error: updateMetaError.message };
   }
 
-  // Update profiles table
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("profiles") as any).upsert({
-      id: user.id,
+  const { error: profileError } = await adminClient
+    .from("profiles")
+    .update({
       role: "partner",
       updated_at: new Date().toISOString(),
-    });
-  } catch (e) {
-    console.error("Profile role update skipped:", e);
+    })
+    .eq("id", user.id);
+
+  if (profileError) {
+    console.error("Profile role escalation error:", profileError.message);
+    return { success: false, error: profileError.message };
   }
 
   revalidatePath("/partner");

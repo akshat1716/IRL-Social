@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ---------------------------------------------------------------------------
 CREATE TYPE user_role AS ENUM ('user', 'partner', 'door_staff');
 CREATE TYPE event_category AS ENUM (
-  'run_club', 'nightlife', 'karaoke', 'mixer', 'board_games'
+  'run_club', 'nightlife', 'karaoke', 'mixer', 'board_games', 'badminton', 'football'
 );
 CREATE TYPE vibe_status AS ENUM (
   'chill', 'warming_up', 'peak_vibe', 'sold_out'
@@ -31,6 +31,17 @@ CREATE TABLE profiles (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Public profile view without sensitive email/phone
+CREATE OR REPLACE VIEW public_profiles AS
+SELECT
+  id,
+  name,
+  avatar_url,
+  created_at
+FROM profiles;
+
+GRANT SELECT ON public_profiles TO anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Venues
@@ -83,6 +94,27 @@ CREATE TABLE ticket_tiers (
 );
 
 -- ---------------------------------------------------------------------------
+-- Payment Orders
+-- ---------------------------------------------------------------------------
+CREATE TABLE payment_orders (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  razorpay_order_id   TEXT UNIQUE NOT NULL,
+  user_id             UUID NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
+  event_id            UUID NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
+  tier_id             UUID NOT NULL REFERENCES ticket_tiers(id) ON DELETE RESTRICT,
+  quantity            INTEGER NOT NULL CHECK (quantity > 0),
+  amount_paise        INTEGER NOT NULL CHECK (amount_paise >= 0),
+  squad_mode          BOOLEAN NOT NULL DEFAULT false,
+  status              TEXT NOT NULL CHECK (status IN ('created', 'paid', 'failed')) DEFAULT 'created',
+  razorpay_payment_id TEXT UNIQUE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX payment_orders_user_id_idx ON payment_orders(user_id);
+CREATE INDEX payment_orders_razorpay_order_id_idx ON payment_orders(razorpay_order_id);
+
+-- ---------------------------------------------------------------------------
 -- Squads (group checkout / split payment)
 -- ---------------------------------------------------------------------------
 CREATE TABLE squads (
@@ -109,6 +141,7 @@ CREATE TABLE passes (
   status            pass_status NOT NULL DEFAULT 'valid',
   redeemed_amount   INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_amount >= 0),
   squad_id          UUID REFERENCES squads(id) ON DELETE SET NULL,
+  order_id          UUID REFERENCES payment_orders(id) ON DELETE SET NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -128,7 +161,7 @@ CREATE TABLE check_ins (
 );
 
 -- ---------------------------------------------------------------------------
--- Helper functions
+-- Helper functions & triggers
 -- ---------------------------------------------------------------------------
 
 -- Auto-create profile row when a new auth user signs up
@@ -138,20 +171,48 @@ LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = public
 AS $$
 BEGIN
-  INSERT INTO profiles (id, name, email, avatar_url)
+  INSERT INTO profiles (id, name, email, avatar_url, role)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
     COALESCE(NEW.email, ''),
-    NEW.raw_user_meta_data->>'avatar_url'
-  );
+    NEW.raw_user_meta_data->>'avatar_url',
+    'user'::user_role
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    name = CASE WHEN profiles.name = '' THEN EXCLUDED.name ELSE profiles.name END;
   RETURN NEW;
 END;
 $$;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- Prevent users from modifying their own role via client update
+CREATE OR REPLACE FUNCTION prevent_profile_role_escalation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.role IS DISTINCT FROM OLD.role THEN
+    IF current_setting('role', true) IS DISTINCT FROM 'service_role'
+       AND current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
+      RAISE EXCEPTION 'Unauthorized attempt to change profile role';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS check_profile_role_change ON profiles;
+CREATE TRIGGER check_profile_role_change
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION prevent_profile_role_escalation();
 
 -- Generate unique QR hash for passes
 CREATE OR REPLACE FUNCTION generate_qr_hash()
@@ -192,9 +253,63 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS pass_before_insert ON passes;
 CREATE TRIGGER pass_before_insert
   BEFORE INSERT ON passes
   FOR EACH ROW EXECUTE FUNCTION on_pass_created();
+
+-- Atomic Pass Creation Function with overselling prevention
+CREATE OR REPLACE FUNCTION issue_pass_atomic(
+  p_event_id UUID,
+  p_user_id UUID,
+  p_tier_id UUID,
+  p_squad_id UUID DEFAULT NULL,
+  p_order_id UUID DEFAULT NULL
+)
+RETURNS SETOF passes
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_sold INT;
+  v_max INT;
+  v_new_pass passes;
+BEGIN
+  SELECT sold_count, max_quantity INTO v_sold, v_max
+  FROM ticket_tiers
+  WHERE id = p_tier_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Ticket tier not found';
+  END IF;
+
+  IF v_sold >= v_max THEN
+    RAISE EXCEPTION 'Tier sold out';
+  END IF;
+
+  INSERT INTO passes (
+    event_id,
+    user_id,
+    tier_id,
+    squad_id,
+    order_id,
+    status,
+    redeemed_amount
+  ) VALUES (
+    p_event_id,
+    p_user_id,
+    p_tier_id,
+    p_squad_id,
+    p_order_id,
+    'valid',
+    0
+  ) RETURNING * INTO v_new_pass;
+
+  RETURN NEXT v_new_pass;
+END;
+$$;
 
 -- Mark pass as checked_in when check_in is recorded
 CREATE OR REPLACE FUNCTION on_check_in_created()
@@ -208,6 +323,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS check_in_after_insert ON check_ins;
 CREATE TRIGGER check_in_after_insert
   AFTER INSERT ON check_ins
   FOR EACH ROW EXECUTE FUNCTION on_check_in_created();
@@ -250,20 +366,40 @@ AS $$
   SELECT auth.uid() = venue_partner_id;
 $$;
 
+CREATE OR REPLACE FUNCTION staff_can_scan_event(p_staff_id UUID, p_event_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM events e
+    JOIN venues v ON v.id = e.venue_id
+    JOIN profiles p ON p.id = p_staff_id
+    WHERE e.id = p_event_id
+      AND p.role IN ('door_staff', 'partner')
+      AND (v.partner_id = p_staff_id OR p.role = 'door_staff')
+  );
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
-ALTER TABLE profiles   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE venues     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE events     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ticket_tiers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE squads     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE passes     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE check_ins  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE venues        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE events        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ticket_tiers  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE squads        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE passes        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE check_ins     ENABLE ROW LEVEL SECURITY;
 
--- Profiles
-CREATE POLICY "Public profiles are viewable by everyone"
-  ON profiles FOR SELECT USING (true);
+-- Profiles: Restrict email SELECT, allow owner or scanner staff to read profile
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON profiles;
+DROP POLICY IF EXISTS "Users can view own profile or scanner staff can view attendee" ON profiles;
+CREATE POLICY "Users can view own profile or scanner staff can view attendee"
+  ON profiles FOR SELECT USING (
+    auth.uid() = id OR is_scanner_staff()
+  );
 
 CREATE POLICY "Users can insert own profile"
   ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
@@ -271,7 +407,7 @@ CREATE POLICY "Users can insert own profile"
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE USING (auth.uid() = id);
 
--- Venues: public read, partners manage own venues
+-- Venues
 CREATE POLICY "Venues are publicly readable"
   ON venues FOR SELECT USING (true);
 
@@ -283,7 +419,7 @@ CREATE POLICY "Partners can insert venues"
 CREATE POLICY "Partners can update own venues"
   ON venues FOR UPDATE USING (owns_venue(partner_id));
 
--- Events: public read, partners manage events at their venues
+-- Events
 CREATE POLICY "Events are publicly readable"
   ON events FOR SELECT USING (true);
 
@@ -303,7 +439,7 @@ CREATE POLICY "Partners can update own venue events"
     )
   );
 
--- Ticket tiers: public read, partners manage via event ownership
+-- Ticket Tiers
 CREATE POLICY "Ticket tiers are publicly readable"
   ON ticket_tiers FOR SELECT USING (true);
 
@@ -325,7 +461,11 @@ CREATE POLICY "Partners can update ticket tiers"
     )
   );
 
--- Squads: public read for share_code join flow; authenticated create/update
+-- Payment Orders
+CREATE POLICY "Users can read own payment orders"
+  ON payment_orders FOR SELECT USING (auth.uid() = user_id);
+
+-- Squads
 CREATE POLICY "Squads are readable for join flow"
   ON squads FOR SELECT USING (true);
 
@@ -335,17 +475,11 @@ CREATE POLICY "Authenticated users can create squads"
 CREATE POLICY "Creator can update squad member list"
   ON squads FOR UPDATE USING (auth.uid() = creator_id);
 
--- Passes: owner read/write; scanner staff can read for validation
+-- Passes: owner read; scanner staff can read for validation. NO CLIENT INSERT / UPDATE!
 CREATE POLICY "Users can read own passes"
   ON passes FOR SELECT USING (
     auth.uid() = user_id OR is_scanner_staff()
   );
-
-CREATE POLICY "Users can insert own passes"
-  ON passes FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own passes"
-  ON passes FOR UPDATE USING (auth.uid() = user_id);
 
 -- Check-ins: scanner staff insert; partners/staff read
 CREATE POLICY "Scanner staff can insert check-ins"
@@ -359,19 +493,3 @@ CREATE POLICY "Scanner staff and pass owners can read check-ins"
       WHERE p.id = pass_id AND p.user_id = auth.uid()
     )
   );
-
--- ---------------------------------------------------------------------------
--- Seed data (optional — run after creating a partner auth user)
--- Replace PARTNER_USER_ID with your Supabase auth.users UUID
--- ---------------------------------------------------------------------------
-/*
-INSERT INTO profiles (id, name, email, role)
-VALUES ('PARTNER_USER_ID', 'Maya Chen', 'maya@venue.com', 'partner')
-ON CONFLICT (id) DO UPDATE SET role = 'partner';
-
-INSERT INTO venues (id, name, location, address, partner_id, lat, lng) VALUES
-  ('11111111-1111-1111-1111-111111111101', 'Neon Pulse Club', 'Indiranagar', '100 Feet Rd, Indiranagar, Bangalore', 'PARTNER_USER_ID', 12.9784, 77.6408),
-  ('11111111-1111-1111-1111-111111111102', 'Sunrise Run Hub', 'Cubbon Park', 'Kasturba Rd, Bangalore', 'PARTNER_USER_ID', 12.9763, 77.5929),
-  ('11111111-1111-1111-1111-111111111103', 'The Velvet Room', 'Koramangala', '5th Block, Koramangala, Bangalore', 'PARTNER_USER_ID', 12.9352, 77.6245),
-  ('11111111-1111-1111-1111-111111111104', 'Brew & Board Café', 'HSR Layout', '27th Main, HSR Layout, Bangalore', 'PARTNER_USER_ID', 12.9116, 77.6473);
-*/
