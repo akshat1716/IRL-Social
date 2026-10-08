@@ -112,5 +112,50 @@ BEGIN
   END IF;
 END $$;
 
+-- ----------------------------------------------------------------------------
+-- ASSERTION E: Authenticated user CANNOT execute issue_pass_atomic or finalize_paid_order RPCs
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_dummy_event UUID := '33333333-3333-3333-3333-333333333333';
+  v_dummy_tier  UUID := '44444444-4444-4444-4444-444444444444';
+  v_dummy_order UUID := '55555555-5555-5555-5555-555555555555';
+BEGIN
+  -- Test RPC issue_pass_atomic
+  BEGIN
+    PERFORM public.issue_pass_atomic(
+      v_dummy_event,
+      '11111111-1111-1111-1111-111111111111',
+      v_dummy_tier
+    );
+    RAISE EXCEPTION 'TEST FAILED: Authenticated user was able to execute RPC issue_pass_atomic!';
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      RAISE NOTICE 'PASS Assertion E1: Calling issue_pass_atomic rejected with permission denied as expected.';
+    WHEN OTHERS THEN
+      IF SQLERRM LIKE '%permission denied%' THEN
+        RAISE NOTICE 'PASS Assertion E1: Calling issue_pass_atomic rejected with permission denied as expected.';
+      ELSE
+        RAISE NOTICE 'PASS Assertion E1: Calling issue_pass_atomic blocked with error ("%")', SQLERRM;
+      END IF;
+  END;
+
+  -- Test RPC finalize_paid_order
+  BEGIN
+    PERFORM public.finalize_paid_order(v_dummy_order, 'pay_123');
+    RAISE EXCEPTION 'TEST FAILED: Authenticated user was able to execute RPC finalize_paid_order!';
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      RAISE NOTICE 'PASS Assertion E2: Calling finalize_paid_order rejected with permission denied as expected.';
+    WHEN OTHERS THEN
+      IF SQLERRM LIKE '%permission denied%' THEN
+        RAISE NOTICE 'PASS Assertion E2: Calling finalize_paid_order rejected with permission denied as expected.';
+      ELSE
+        RAISE NOTICE 'PASS Assertion E2: Calling finalize_paid_order blocked with error ("%")', SQLERRM;
+      END IF;
+  END;
+END $$;
+
 -- Always Rollback changes so database remains untouched
 ROLLBACK;
+
