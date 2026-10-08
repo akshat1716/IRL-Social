@@ -57,6 +57,36 @@ This document details the security audit findings, architectural changes, databa
   2. Updated `requestPartnerAccess()` server action in `src/lib/actions/auth.ts` to perform role elevation via `createAdminClient()`.
   3. Ensured `handle_new_user()` trigger defaults role to `'user'` without reading user-supplied metadata.
 
+#### Operational Note: How to Manually Promote a User to Partner Role
+Since the database trigger `check_profile_role_change` blocks role modifications from standard authenticated client connections, use one of the following two safe administrative methods to promote a user:
+
+**Method A: Using Supabase Admin / Service Role Client (Recommended)**
+Use the `createAdminClient()` (or Supabase Service Role Key) from a server context:
+```typescript
+import { createAdminClient } from "@/lib/supabase/server";
+
+const adminClient = createAdminClient();
+await adminClient
+  .from("profiles")
+  .update({ role: "partner" })
+  .eq("id", targetUserId);
+```
+
+**Method B: SQL Editor / Transaction Override**
+Inside the Supabase Dashboard SQL Editor, wrap your update in a transaction that temporarily disables the trigger:
+```sql
+BEGIN;
+ALTER TABLE public.profiles DISABLE TRIGGER check_profile_role_change;
+
+UPDATE public.profiles
+SET role = 'partner'::user_role
+WHERE id = 'TARGET_USER_UUID_HERE';
+
+ALTER TABLE public.profiles ENABLE TRIGGER check_profile_role_change;
+COMMIT;
+```
+
+
 ### ISSUE 4: Profile Email & Phone Privacy
 - **Files Modified**:
   - `supabase/migrations/20261009040000_security_hardening.sql`
