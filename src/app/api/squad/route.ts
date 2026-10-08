@@ -1,22 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSquadPassCheckout, getSquadByCode } from "@/lib/actions/tickets";
+import { getSquadByCode } from "@/lib/actions/tickets";
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const result = await createSquadPassCheckout({
-      event_id: body.event_id,
-      tier_id: body.tier_id,
-    });
-
-    return NextResponse.json(result, { status: 201 });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to create squad" },
-      { status: 400 }
-    );
-  }
-}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
