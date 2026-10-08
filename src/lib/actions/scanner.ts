@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import {
   mapEvent,
   mapPass,
@@ -33,11 +33,13 @@ async function requireScannerStaff() {
 
   if (!user) throw new Error("Authentication required");
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", user.id)
     .single();
+
+  const profile = profileData as { role: string } | null;
 
   if (
     !profile ||
@@ -46,16 +48,17 @@ async function requireScannerStaff() {
     throw new Error("Scanner authorization required");
   }
 
-  return { supabase, user };
+  return { user, role: profile.role };
 }
 
 export async function validatePass(
   passHash: string
 ): Promise<ValidatePassResult> {
   try {
-    const { supabase, user } = await requireScannerStaff();
+    const { user, role } = await requireScannerStaff();
+    const adminClient = createAdminClient();
 
-    const { data: passRow, error: passError } = await supabase
+    const { data: passRow, error: passError } = await adminClient
       .from("passes")
       .select("*")
       .eq("qr_code_hash", passHash)
@@ -71,22 +74,22 @@ export async function validatePass(
 
     const [{ data: eventData }, { data: tier }, { data: profile }, { data: existingCheckIn }] =
       await Promise.all([
-        supabase
+        adminClient
           .from("events")
           .select("*, venues(*), ticket_tiers(*)")
           .eq("id", passRow.event_id)
           .single(),
-        supabase
+        adminClient
           .from("ticket_tiers")
           .select("*")
           .eq("id", passRow.tier_id)
           .single(),
-        supabase
+        adminClient
           .from("profiles")
           .select("*")
           .eq("id", passRow.user_id)
           .single(),
-        supabase
+        adminClient
           .from("check_ins")
           .select("*")
           .eq("pass_id", passRow.id)
@@ -97,6 +100,16 @@ export async function validatePass(
       venues: VenueRow | null;
       ticket_tiers: TicketTierRow[];
     } | null;
+
+    // Venue ownership check for partners: partner can only scan passes for their own venue
+    if (role === "partner" && eventRow?.venues) {
+      if (eventRow.venues.partner_id !== user.id) {
+        return {
+          status: "INVALID",
+          message: "Unauthorized: You can only scan passes for your own venue events",
+        };
+      }
+    }
 
     const hydratedPass = mapPass(
       passRow,
@@ -116,7 +129,8 @@ export async function validatePass(
       };
     }
 
-    const { error: checkInError } = await supabase.from("check_ins").insert({
+    // Insert check-in atomically
+    const { error: checkInError } = await adminClient.from("check_ins").insert({
       pass_id: passRow.id,
       scanned_by_staff_id: user.id,
     });
@@ -147,9 +161,23 @@ export async function validatePass(
 }
 
 export async function getEventPassesForCache(eventId: string) {
-  const { supabase } = await requireScannerStaff();
+  const { user, role } = await requireScannerStaff();
+  const adminClient = createAdminClient();
 
-  const { data: passes, error } = await supabase
+  if (role === "partner") {
+    const { data: event } = await adminClient
+      .from("events")
+      .select("*, venues(*)")
+      .eq("id", eventId)
+      .single();
+
+    const venuePartnerId = (event as unknown as { venues?: { partner_id?: string } | null })?.venues?.partner_id;
+    if (venuePartnerId !== user.id) {
+      return [];
+    }
+  }
+
+  const { data: passes, error } = await adminClient
     .from("passes")
     .select("*, profiles(*), ticket_tiers(*)")
     .eq("event_id", eventId);
@@ -178,14 +206,34 @@ export async function getEventPassesForCache(eventId: string) {
 }
 
 export async function getEventsForScanner() {
-  const supabase = createClient();
+  const { user, role } = await requireScannerStaff();
+  const adminClient = createAdminClient();
 
-  const { data, error } = await supabase
+  const query = adminClient
     .from("events")
-    .select("id, title")
+    .select("id, title, venue_id, venues(partner_id)")
     .gte("end_time", new Date().toISOString())
     .order("start_time", { ascending: true });
 
-  if (error) return [];
-  return data ?? [];
+  const { data, error } = await query;
+  if (error || !data) return [];
+
+  type EventScannerItem = {
+    id: string;
+    title: string;
+    venues?: { partner_id?: string } | { partner_id?: string }[] | null;
+  };
+
+  const items = data as unknown as EventScannerItem[];
+
+  if (role === "partner") {
+    return items
+      .filter((e) => {
+        const v = Array.isArray(e.venues) ? e.venues[0] : e.venues;
+        return v?.partner_id === user.id;
+      })
+      .map(({ id, title }) => ({ id, title }));
+  }
+
+  return items.map(({ id, title }) => ({ id, title }));
 }

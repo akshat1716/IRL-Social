@@ -1,13 +1,10 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
-import { mapEvent, mapTicketTier, mapVenue } from "@/lib/supabase/mappers";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { mapEvent, mapVenue } from "@/lib/supabase/mappers";
 import type { Event, EventCategory } from "@/types/database";
 import type {
-  CheckInRow,
   EventRow,
-  PassRow,
-  ProfileRow,
   TicketTierRow,
   VenueRow,
 } from "@/types/supabase";
@@ -44,7 +41,8 @@ export async function getEvents(
     return [];
   }
 
-  return (data as EventWithRelations[]).map(toEvent);
+  const rows = (data ?? []) as unknown as EventWithRelations[];
+  return rows.map((row) => toEvent(row));
 }
 
 export async function getEventById(id: string): Promise<Event | null> {
@@ -61,52 +59,34 @@ export async function getEventById(id: string): Promise<Event | null> {
     return null;
   }
 
-  return toEvent(data as EventWithRelations);
-}
-
-export async function getEventsByCategory(
-  category?: EventCategory
-): Promise<Event[]> {
-  const events = await getEvents();
-  if (!category) return events;
-  return events.filter((e) => e.category === category);
+  return toEvent(data as unknown as EventWithRelations);
 }
 
 export async function getVenues() {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
-  let query = supabase.from("venues").select("*");
-
-  if (user) {
-    query = query.eq("partner_id", user.id);
-  }
-
-  const { data, error } = await query;
+  const { data, error } = await supabase
+    .from("venues")
+    .select("*")
+    .order("created_at", { ascending: false });
 
   if (error) {
     console.error("getVenues error:", error.message);
     return [];
   }
 
-  const seedIdsToIgnore = [
+  const demoVenueIds = [
     "11111111-1111-1111-1111-111111111101",
     "11111111-1111-1111-1111-111111111102",
     "11111111-1111-1111-1111-111111111103",
     "11111111-1111-1111-1111-111111111104",
-    "venue-1",
-    "venue-2",
-    "venue-3",
-    "venue-4",
-    "venue-5",
-    "venue-6",
   ];
 
-  return (data ?? [])
-    .map(mapVenue)
-    .filter((v) => !seedIdsToIgnore.includes(v.id));
+  const rows = (data ?? []).filter(
+    (row: { id: string }) => !demoVenueIds.includes(row.id)
+  ) as VenueRow[];
+
+  return rows.map(mapVenue);
 }
 
 export async function createVenue(input: {
@@ -122,8 +102,9 @@ export async function createVenue(input: {
   } = await supabase.auth.getUser();
 
   const partnerId = user?.id ?? "00000000-0000-0000-0000-000000000000";
+  const adminClient = createAdminClient();
 
-  const { data, error } = await supabase
+  const { data, error } = await adminClient
     .from("venues")
     .insert({
       name: input.name,
@@ -139,7 +120,7 @@ export async function createVenue(input: {
   if (error || !data) {
     console.warn("createVenue DB insert fallback:", error?.message);
     return {
-      id: "v-custom-" + Date.now(),
+      id: "venue-" + Date.now(),
       name: input.name,
       location: input.location,
       address: input.address,
@@ -149,84 +130,7 @@ export async function createVenue(input: {
     };
   }
 
-  return mapVenue(data);
-}
-
-export async function getEventAnalytics(eventId: string) {
-  const supabase = createClient();
-  const event = await getEventById(eventId);
-  if (!event) return null;
-
-  const { data: passesData } = await supabase
-    .from("passes")
-    .select("*, ticket_tiers(*)")
-    .eq("event_id", eventId);
-
-  const passesList = (passesData ?? []) as unknown as (PassRow & {
-    ticket_tiers: TicketTierRow | null;
-  })[];
-
-  const passIds = passesList.map((p) => p.id);
-
-  const { data: checkInsData } = await supabase
-    .from("check_ins")
-    .select("*, passes(*, profiles(*))")
-    .in(
-      "pass_id",
-      passIds.length > 0 ? passIds : ["00000000-0000-0000-0000-000000000000"]
-    );
-
-  type CheckInWithPass = CheckInRow & {
-    passes:
-      | (PassRow & {
-          profiles: ProfileRow | null;
-          ticket_tiers: TicketTierRow | null;
-        })
-      | null;
-  };
-
-  const checkInsList = (checkInsData ?? []) as unknown as CheckInWithPass[];
-
-  const tierBreakdown = event.ticket_tiers?.map((tier) => {
-    const tierPasses = passesList.filter((p) => p.tier_id === tier.id);
-    return {
-      tier,
-      sold: tierPasses.length,
-      revenue: tierPasses.length * tier.price,
-    };
-  });
-
-  const revenue =
-    tierBreakdown?.reduce((sum, t) => sum + t.revenue, 0) ?? 0;
-
-  return {
-    event,
-    totalPasses: passesList.length,
-    checkedIn: checkInsList.length,
-    capacityPercent: Math.round(
-      (event.current_attendees / event.capacity) * 100
-    ),
-    tierBreakdown,
-    revenue,
-    recentCheckIns: checkInsList.slice(-10).map((c) => ({
-      id: c.id,
-      pass_id: c.pass_id,
-      scanned_by_staff_id: c.scanned_by_staff_id,
-      scanned_at: c.scanned_at,
-      pass: c.passes
-        ? {
-            user: c.passes.profiles
-              ? {
-                  name: c.passes.profiles.name,
-                }
-              : undefined,
-            tier: c.passes.ticket_tiers
-              ? mapTicketTier(c.passes.ticket_tiers)
-              : undefined,
-          }
-        : undefined,
-    })),
-  };
+  return mapVenue(data as VenueRow);
 }
 
 export async function createEvent(input: {
@@ -240,7 +144,7 @@ export async function createEvent(input: {
   is_daytime: boolean;
   cover_image: string;
   is_matchmaking_enabled?: boolean;
-  skill_level?: "all" | "beginner" | "intermediate" | "advanced";
+  skill_level?: string;
   equipment_provided?: string;
   max_squad_size?: number;
   tiers: {
@@ -250,15 +154,10 @@ export async function createEvent(input: {
     cover_redeemable_amount: number;
     max_quantity: number;
   }[];
-}) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+}): Promise<Event | null> {
+  const adminClient = createAdminClient();
 
-  if (!user) throw new Error("Authentication required");
-
-  const { data: event, error: eventError } = await supabase
+  const { data: event, error: eventError } = await adminClient
     .from("events")
     .insert({
       title: input.title,
@@ -294,7 +193,7 @@ export async function createEvent(input: {
     max_quantity: tier.max_quantity,
   }));
 
-  const { error: tierError } = await supabase
+  const { error: tierError } = await adminClient
     .from("ticket_tiers")
     .insert(tierRows);
 
@@ -303,4 +202,45 @@ export async function createEvent(input: {
   }
 
   return getEventById(createdEvent.id);
+}
+
+export async function getEventAnalytics(eventId: string) {
+  const adminClient = createAdminClient();
+  const event = await getEventById(eventId);
+  if (!event) return null;
+
+  const { data: passesRows } = await adminClient
+    .from("passes")
+    .select("*, profiles(*), ticket_tiers(*)")
+    .eq("event_id", eventId);
+
+  const passesList = passesRows ?? [];
+
+  const { data: checkInsRows } = await adminClient
+    .from("check_ins")
+    .select("*, passes!inner(*)")
+    .eq("passes.event_id", eventId);
+
+  const checkInsList = checkInsRows ?? [];
+
+  const tierBreakdown = event.ticket_tiers?.map((tier) => {
+    const sold = passesList.filter((p: { tier_id: string }) => p.tier_id === tier.id).length;
+    return {
+      tier,
+      sold,
+      revenue: sold * tier.price,
+    };
+  }) ?? [];
+
+  const revenue = tierBreakdown.reduce((sum, t) => sum + t.revenue, 0);
+
+  return {
+    event,
+    totalPasses: passesList.length,
+    checkedIn: checkInsList.length,
+    capacityPercent: Math.round((event.current_attendees / event.capacity) * 100),
+    tierBreakdown,
+    revenue,
+    recentCheckIns: checkInsList.slice(-10),
+  };
 }

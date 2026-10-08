@@ -1,47 +1,128 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
+import { createAdminClient } from "@/lib/supabase/server";
+import { verifyWebhookSignature } from "@/lib/payments";
+import { createSquadPassCheckoutInternal } from "@/lib/actions/tickets";
 
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
     const signature = req.headers.get("x-razorpay-signature");
 
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "irl_webhook_secret_2026";
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    // Verify webhook signature
-    if (signature && webhookSecret && !webhookSecret.startsWith("irl_webhook_secret")) {
-      const expectedSignature = crypto
-        .createHmac("sha256", webhookSecret)
-        .update(rawBody)
-        .digest("hex");
+    if (!signature) {
+      console.error("Webhook rejected: missing x-razorpay-signature header");
+      return NextResponse.json(
+        { error: "Missing x-razorpay-signature header" },
+        { status: 400 }
+      );
+    }
 
-      if (expectedSignature !== signature) {
-        console.error("Webhook signature verification failed");
-        return NextResponse.json({ error: "Invalid webhook signature" }, { status: 400 });
+    if (!webhookSecret || webhookSecret.startsWith("irl_webhook_secret")) {
+      if (process.env.NODE_ENV === "production") {
+        console.error("Webhook error: RAZORPAY_WEBHOOK_SECRET not properly configured");
+        return NextResponse.json(
+          { error: "Webhook secret not configured on server" },
+          { status: 500 }
+        );
       }
     }
 
+    // Verify webhook signature with constant-time comparison
+    const isValid = verifyWebhookSignature({
+      rawBody,
+      signature,
+      webhookSecret: webhookSecret || "",
+    });
+
+    if (!isValid) {
+      console.error("Webhook signature verification failed");
+      return NextResponse.json(
+        { error: "Invalid webhook signature" },
+        { status: 400 }
+      );
+    }
+
     const event = JSON.parse(rawBody);
+    const adminClient = createAdminClient();
 
-    // Handle payment.captured event
+    // 1. Reconcile paid events (payment.captured or order.paid)
     if (event.event === "payment.captured" || event.event === "order.paid") {
-      const payment = event.payload?.payment?.entity;
-      const orderNotes = payment?.notes || {};
+      const paymentEntity = event.payload?.payment?.entity;
+      const orderId = paymentEntity?.order_id || event.payload?.order?.entity?.id;
+      const paymentId = paymentEntity?.id;
 
-      console.log("Razorpay Payment Captured:", {
-        payment_id: payment?.id,
-        amount: payment?.amount ? payment.amount / 100 : 0,
-        email: payment?.email,
-        phone: payment?.contact,
-        notes: orderNotes,
-      });
+      if (orderId) {
+        const { data: order } = await adminClient
+          .from("payment_orders")
+          .select("*")
+          .eq("razorpay_order_id", orderId)
+          .single();
 
-      // Ticket generation logic for webhook background processing
+        if (order && order.status === "created") {
+          // Mark paid
+          await adminClient
+            .from("payment_orders")
+            .update({
+              status: "paid",
+              razorpay_payment_id: paymentId || order.razorpay_payment_id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", order.id);
+
+          // Check if passes have already been issued
+          const { data: existingPasses } = await adminClient
+            .from("passes")
+            .select("id")
+            .eq("order_id", order.id);
+
+          if (!existingPasses || existingPasses.length === 0) {
+            if (order.squad_mode) {
+              await createSquadPassCheckoutInternal({
+                user_id: order.user_id,
+                event_id: order.event_id,
+                tier_id: order.tier_id,
+                order_id: order.id,
+              });
+            } else {
+              for (let i = 0; i < order.quantity; i++) {
+                await adminClient.rpc("issue_pass_atomic", {
+                  p_event_id: order.event_id,
+                  p_user_id: order.user_id,
+                  p_tier_id: order.tier_id,
+                  p_order_id: order.id,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Reconcile failed events (payment.failed)
+    if (event.event === "payment.failed") {
+      const paymentEntity = event.payload?.payment?.entity;
+      const orderId = paymentEntity?.order_id;
+
+      if (orderId) {
+        await adminClient
+          .from("payment_orders")
+          .update({
+            status: "failed",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("razorpay_order_id", orderId)
+          .eq("status", "created");
+      }
     }
 
     return NextResponse.json({ received: true, status: "success" });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Webhook processing failed";
     console.error("Razorpay Webhook Processing Error:", err);
-    return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: message },
+      { status: 500 }
+    );
   }
 }

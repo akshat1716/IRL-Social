@@ -239,6 +239,7 @@ export default function NewEventPage() {
                     onChange={(e) =>
                       setForm({
                         ...form,
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         skill_level: e.target.value as any,
                       })
                     }

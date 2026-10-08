@@ -1,37 +1,45 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Search, MapPin, X, Check, Loader2, Navigation, Compass } from "lucide-react";
+import type L from "leaflet";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
-import type { Venue } from "@/types/database";
+import { Input } from "@/components/ui/input";
 import { createVenue } from "@/lib/actions/events";
-import "leaflet/dist/leaflet.css";
+import type { Venue } from "@/types/database";
+import {
+  Compass,
+  MapPin,
+  Search,
+  X,
+  Check,
+  Navigation,
+  Loader2,
+} from "lucide-react";
 
 interface VenueMapPickerProps {
   isOpen: boolean;
   onClose: () => void;
-  onVenueCreated: (newVenue: Venue) => void;
+  onVenueCreated: (venue: Venue) => void;
   existingVenues?: Venue[];
 }
 
 interface SearchResult {
-  place_id: number;
+  place_id: string;
   display_name: string;
+  name?: string;
   lat: string;
   lon: string;
   address?: {
-    name?: string;
+    road?: string;
     suburb?: string;
     city?: string;
     town?: string;
     state?: string;
-    road?: string;
+    country?: string;
   };
 }
 
-// Default center: Lucknow (26.8467, 80.9462)
-const DEFAULT_CENTER = { lat: 26.8467, lng: 80.9462 };
+const DEFAULT_CENTER = { lat: 26.8467, lng: 80.9462 }; // Lucknow City Center
 
 export function VenueMapPicker({
   isOpen,
@@ -40,8 +48,8 @@ export function VenueMapPicker({
   existingVenues = [],
 }: VenueMapPickerProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markerRef = useRef<any>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -58,14 +66,14 @@ export function VenueMapPicker({
   useEffect(() => {
     if (!isOpen || !mapContainerRef.current) return;
 
-    let L: typeof import("leaflet");
+    let LeafletModule: typeof import("leaflet");
 
     const initMap = async () => {
-      L = await import("leaflet");
+      LeafletModule = await import("leaflet");
 
       // Fix default marker icon issues with Next.js asset paths
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
-      L.Icon.Default.mergeOptions({
+      delete (LeafletModule.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
+      LeafletModule.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
         iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
         shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
@@ -75,13 +83,14 @@ export function VenueMapPicker({
         mapInstanceRef.current.remove();
       }
 
-      const map = L.map(mapContainerRef.current).setView(
+      if (!mapContainerRef.current) return;
+      const map = LeafletModule.map(mapContainerRef.current).setView(
         [selectedCoords.lat, selectedCoords.lng],
         14
       );
 
       // Rich Detailed Street Tile Layer with Places & POI labels
-      L.tileLayer(
+      LeafletModule.tileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
         {
           attribution:
@@ -94,21 +103,21 @@ export function VenueMapPicker({
       existingVenues.forEach((v) => {
         if (v.lat && v.lng) {
           const popupContent = `<div style="color: #000; font-weight: bold;">${v.name}</div><div style="color: #666; font-size: 11px;">${v.location}</div>`;
-          L.marker([v.lat, v.lng])
+          LeafletModule.marker([v.lat, v.lng])
             .addTo(map)
             .bindPopup(popupContent);
         }
       });
 
       // Draggable selected pin icon
-      const customPinIcon = L.divIcon({
+      const customPinIcon = LeafletModule.divIcon({
         className: "custom-map-pin",
         html: `<div style="background-color: #a855f7; border: 3px solid #ffffff; width: 24px; height: 24px; border-radius: 50%; box-shadow: 0 0 15px rgba(168,85,247,0.8); cursor: pointer;"></div>`,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
       });
 
-      const marker = L.marker([selectedCoords.lat, selectedCoords.lng], {
+      const marker = LeafletModule.marker([selectedCoords.lat, selectedCoords.lng], {
         icon: customPinIcon,
         draggable: true,
       }).addTo(map);
@@ -123,7 +132,7 @@ export function VenueMapPicker({
       });
 
       // Handle map click
-      map.on("click", async (e: any) => {
+      map.on("click", async (e: L.LeafletMouseEvent) => {
         const { lat, lng } = e.latlng;
         marker.setLatLng([lat, lng]);
         updateSelectedPoint(lat, lng, true);
@@ -140,16 +149,11 @@ export function VenueMapPicker({
             marker.setLatLng([userLat, userLng]);
             reverseGeocode(userLat, userLng);
           },
-          (err) => {
+          () => {
             console.log("Geolocation permission not granted or unavailable, using Lucknow default");
           },
           { timeout: 5000 }
         );
-      }
-
-      // Perform initial reverse geocode if empty
-      if (!venueName) {
-        reverseGeocode(selectedCoords.lat, selectedCoords.lng);
       }
     };
 
@@ -161,60 +165,50 @@ export function VenueMapPicker({
         mapInstanceRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const updateSelectedPoint = (lat: number, lng: number, shouldReverseGeocode = false) => {
+  const updateSelectedPoint = (lat: number, lng: number, fetchAddress = true) => {
     setSelectedCoords({ lat, lng });
-    if (mapInstanceRef.current && markerRef.current) {
-      markerRef.current.setLatLng([lat, lng]);
-    }
-    if (shouldReverseGeocode) {
+    if (fetchAddress) {
       reverseGeocode(lat, lng);
     }
   };
 
+  // Reverse geocode lat/lng to human address using Nominatim
   const reverseGeocode = async (lat: number, lng: number) => {
     setIsGeocoding(true);
     try {
       const res = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
       );
-      const data = await res.json();
+      const data: SearchResult = await res.json();
       if (data && data.display_name) {
-        const namePart =
-          data.name ||
-          data.address?.amenity ||
-          data.address?.building ||
-          data.address?.leisure ||
-          data.address?.shop ||
-          data.address?.road ||
-          (searchQuery.trim() ? searchQuery : "Custom Location");
-        const locationPart =
+        const parts = data.display_name.split(",");
+        const namePart = data.name || parts[0]?.trim() || "Selected Venue Location";
+        const locPart =
           [
-            data.address?.suburb || data.address?.neighbourhood,
-            data.address?.city || data.address?.town || data.address?.state_district,
+            data.address?.suburb,
+            data.address?.city || data.address?.town || data.address?.state,
           ]
             .filter(Boolean)
             .join(", ") || "Lucknow, Uttar Pradesh";
 
-        if (!venueName || venueName === "Custom Location") setVenueName(namePart);
-        setVenueLocation(locationPart);
+        if (!venueName) setVenueName(namePart);
+        setVenueLocation(locPart);
         setVenueAddress(data.display_name);
       }
     } catch (err) {
-      console.warn("Reverse geocode error:", err);
+      console.warn("Reverse geocode failed:", err);
     } finally {
       setIsGeocoding(false);
     }
   };
 
-  const [hasSearched, setHasSearched] = useState(false);
-
-  // Live debounced autocomplete as the host types (2+ chars)
+  // Live Auto-Search Autocomplete Logic
   useEffect(() => {
-    if (!searchQuery || searchQuery.trim().length < 2) {
+    if (!searchQuery.trim() || searchQuery.length < 2) {
       setSearchResults([]);
-      setHasSearched(false);
       return;
     }
 
@@ -223,27 +217,29 @@ export function VenueMapPicker({
     }, 250);
 
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
   const handleSearch = async (queryToSearch = searchQuery) => {
     if (!queryToSearch.trim()) return;
     setIsSearching(true);
-    setHasSearched(true);
     try {
       const res = await fetch(`/api/venues/search?q=${encodeURIComponent(queryToSearch)}`);
       const data = await res.json();
 
       if (Array.isArray(data) && data.length > 0) {
-        const formatted: SearchResult[] = data.map((item: any) => ({
-          place_id: item.place_id,
-          display_name: item.address,
-          name: item.name,
-          lat: String(item.lat),
-          lon: String(item.lng),
-          address: {
-            city: item.location,
-          },
-        }));
+        const formatted: SearchResult[] = data.map(
+          (item: { place_id: string; address: string; name: string; lat: number; lng: number; location: string }) => ({
+            place_id: item.place_id,
+            display_name: item.address,
+            name: item.name,
+            lat: String(item.lat),
+            lon: String(item.lng),
+            address: {
+              city: item.location,
+            },
+          })
+        );
 
         setSearchResults(formatted);
 
@@ -359,7 +355,7 @@ export function VenueMapPicker({
             <Button
               size="sm"
               variant="violet"
-              onClick={handleSearch}
+              onClick={() => handleSearch()}
               disabled={isSearching}
             >
               {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
@@ -368,113 +364,106 @@ export function VenueMapPicker({
 
           {/* Search Dropdown Results */}
           {searchResults.length > 0 && (
-            <div className="absolute top-11 left-0 right-0 z-[1000] max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-zinc-900/95 p-1 shadow-xl backdrop-blur-md">
-              {searchResults.map((item) => (
+            <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-white/10 bg-zinc-900/95 p-1 shadow-2xl backdrop-blur-md">
+              {searchResults.map((result) => (
                 <button
-                  key={item.place_id}
-                  onClick={() => handleSelectSearchResult(item)}
-                  className="w-full text-left p-2 hover:bg-violet-500/20 rounded-lg text-xs text-white/90 flex items-start gap-2 border-b border-white/5 last:border-0"
+                  key={result.place_id}
+                  onClick={() => handleSelectSearchResult(result)}
+                  className="flex w-full items-start gap-2.5 rounded-lg p-2 text-left text-xs hover:bg-white/10 transition-all"
                 >
-                  <MapPin className="h-3.5 w-3.5 text-violet-400 shrink-0 mt-0.5" />
-                  <span className="line-clamp-2">{item.display_name}</span>
+                  <MapPin className="h-4 w-4 shrink-0 text-violet-400 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-white">
+                      {result.name || result.display_name.split(",")[0]}
+                    </p>
+                    <p className="text-[11px] text-white/50 truncate">
+                      {result.display_name}
+                    </p>
+                  </div>
                 </button>
               ))}
             </div>
           )}
-
-          {/* No Results Feedback Banner */}
-          {hasSearched && searchResults.length === 0 && !isSearching && (
-            <div className="absolute top-11 left-0 right-0 z-[1000] rounded-xl border border-amber-500/30 bg-zinc-900/95 p-2.5 shadow-xl backdrop-blur-md text-xs text-amber-300 flex items-center justify-between">
-              <span>No exact map pin match found for &quot;{searchQuery}&quot;. Tap anywhere on the map or type venue details below!</span>
-              <button onClick={() => setHasSearched(false)} className="text-white/40 hover:text-white ml-2 shrink-0">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* Map Container */}
-        <div className="relative flex-1 rounded-xl overflow-hidden border border-white/10 min-h-[260px]">
-          <div ref={mapContainerRef} className="h-full w-full bg-zinc-900" />
-
-          {/* Map floating helper pill */}
-          <div className="absolute bottom-2 left-2 z-[400] flex items-center gap-1.5 bg-zinc-950/80 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 text-[10px] text-white/70">
-            <Navigation className="h-3 w-3 text-violet-400" />
-            <span>Click map or drag purple pin</span>
-          </div>
-
+        {/* Leaflet Map Box */}
+        <div className="relative flex-1 rounded-xl border border-white/10 overflow-hidden min-h-[260px]">
+          <div ref={mapContainerRef} className="h-full w-full bg-zinc-900 z-10" />
           {isGeocoding && (
-            <div className="absolute top-2 right-2 z-[400] flex items-center gap-1 bg-zinc-950/80 px-2 py-1 rounded-md text-[10px] text-violet-300">
-              <Loader2 className="h-3 w-3 animate-spin" /> Fetching location details...
+            <div className="absolute top-3 right-3 z-20 flex items-center gap-2 rounded-full bg-black/80 px-3 py-1 text-xs text-white backdrop-blur-md border border-white/10">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />
+              <span>Fetching location details...</span>
             </div>
           )}
         </div>
 
-        {/* Venue Info Form */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="space-y-1">
-            <Label className="text-[11px] text-white/70">Venue Name *</Label>
-            <Input
-              placeholder="e.g. Toit Brewpub"
-              className="bg-zinc-900 border-white/10 h-8 text-xs text-white"
-              value={venueName}
-              onChange={(e) => setVenueName(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-[11px] text-white/70">Area / City *</Label>
-            <Input
-              placeholder="e.g. Indiranagar, Bengaluru"
-              className="bg-zinc-900 border-white/10 h-8 text-xs text-white"
-              value={venueLocation}
-              onChange={(e) => setVenueLocation(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-1 text-xs">
-          <Label className="text-[11px] text-white/70">Full Address</Label>
-          <Input
-            placeholder="Full street address..."
-            className="bg-zinc-900 border-white/10 h-8 text-xs text-white"
-            value={venueAddress}
-            onChange={(e) => setVenueAddress(e.target.value)}
-          />
-        </div>
-
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-2">
-            <div className="text-[10px] text-white/40">
-              Lat: {selectedCoords.lat.toFixed(4)}, Lng: {selectedCoords.lng.toFixed(4)}
+        {/* Selected Location Form Details */}
+        <div className="space-y-3 pt-1 border-t border-white/10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-semibold text-white/60">Venue Title</label>
+              <Input
+                value={venueName}
+                onChange={(e) => setVenueName(e.target.value)}
+                placeholder="e.g. Neon Pulse Club"
+                className="mt-1 bg-zinc-900 border-white/10 text-xs text-white"
+              />
             </div>
-            <button
-              type="button"
-              onClick={() => openDirections(selectedCoords.lat, selectedCoords.lng, venueName || searchQuery)}
-              className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-violet-300 hover:bg-white/20 hover:text-white"
-            >
-              <Navigation className="h-3 w-3" />
-              Get Directions
-            </button>
+            <div>
+              <label className="text-[11px] font-semibold text-white/60">Neighborhood / City</label>
+              <Input
+                value={venueLocation}
+                onChange={(e) => setVenueLocation(e.target.value)}
+                placeholder="e.g. Indiranagar, Bangalore"
+                className="mt-1 bg-zinc-900 border-white/10 text-xs text-white"
+              />
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="ghost" onClick={onClose} className="text-xs">
-              Cancel
-            </Button>
+
+          <div>
+            <label className="text-[11px] font-semibold text-white/60">Full Street Address</label>
+            <Input
+              value={venueAddress}
+              onChange={(e) => setVenueAddress(e.target.value)}
+              placeholder="e.g. 100 Feet Rd, Indiranagar"
+              className="mt-1 bg-zinc-900 border-white/10 text-xs text-white"
+            />
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center justify-between pt-1 gap-2">
             <Button
+              type="button"
+              variant="outline"
               size="sm"
-              variant="violet"
-              onClick={handleSaveVenue}
-              disabled={!venueName.trim() || !venueLocation.trim() || isSaving}
-              className="text-xs gap-1.5"
+              className="gap-1.5 text-xs border-white/10 bg-white/5 hover:bg-white/10"
+              onClick={() =>
+                openDirections(selectedCoords.lat, selectedCoords.lng, venueName)
+              }
             >
-              {isSaving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Check className="h-3.5 w-3.5" />
-              )}
-              Add & Select Venue
+              <Navigation className="h-3.5 w-3.5 text-lime-400" />
+              <span>Get Directions</span>
             </Button>
+
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" onClick={onClose} className="text-xs">
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="violet"
+                onClick={handleSaveVenue}
+                disabled={isSaving || !venueName.trim() || !venueLocation.trim()}
+                className="gap-1.5 text-xs font-bold"
+              >
+                {isSaving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Check className="h-3.5 w-3.5" />
+                )}
+                <span>Confirm & Select Venue</span>
+              </Button>
+            </div>
           </div>
         </div>
       </div>

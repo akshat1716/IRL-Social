@@ -41,10 +41,12 @@ export function EventDetail({ event }: EventDetailProps) {
     getPublicSquadsForEvent(event.id).then((squads) => {
       if (squads.length > 0) {
         setOpenSquads(squads);
-      } else {
-        // Fallback to mock squads matching this event id
+      } else if (process.env.NODE_ENV !== "production") {
+        // Fallback to mock squads matching this event id only in development
         const matching = mockSquads.filter((s) => s.event_id === event.id);
         setOpenSquads(matching);
+      } else {
+        setOpenSquads([]);
       }
     });
   }, [event.id, isMatchmaking]);

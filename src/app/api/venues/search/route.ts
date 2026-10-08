@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-interface SearchVenueResult {
+interface SearchResult {
   place_id: string;
   name: string;
   location: string;
@@ -9,81 +9,87 @@ interface SearchVenueResult {
   lng: number;
 }
 
-// Popular Lucknow sports, cafes & lifestyle venues index for instant zero-latency match
-const LUCKNOW_POPULAR_VENUES: SearchVenueResult[] = [
+interface GooglePlaceResult {
+  place_id?: string;
+  name?: string;
+  formatted_address?: string;
+  geometry?: {
+    location?: {
+      lat?: number;
+      lng?: number;
+    };
+  };
+}
+
+interface PhotonFeatureResult {
+  properties?: {
+    name?: string;
+    street?: string;
+    district?: string;
+    suburb?: string;
+    city?: string;
+    town?: string;
+    state?: string;
+    country?: string;
+    osm_id?: number | string;
+  };
+  geometry?: {
+    coordinates?: [number, number];
+  };
+}
+
+interface NominatimResult {
+  place_id?: number | string;
+  name?: string;
+  display_name: string;
+  lat: string;
+  lon: string;
+  address?: {
+    suburb?: string;
+    city?: string;
+  };
+}
+
+const LUCKNOW_POPULAR_VENUES: SearchResult[] = [
   {
-    place_id: "lucknow-paddles-lattes",
-    name: "Paddles & Lattes",
-    location: "Gomti Nagar",
-    address: "3/123, Vidhayak Puram, Patrakar Puram, Vinay Khand 3, Gomti Nagar, Lucknow, Uttar Pradesh 226010",
-    lat: 26.8502,
-    lng: 80.9985,
+    place_id: "lucknow-101",
+    name: "Paddles & Latte",
+    location: "Gomti Nagar, Lucknow",
+    address: "Gomti Nagar Main Rd, Gomti Nagar, Lucknow, Uttar Pradesh 226010",
+    lat: 26.8500,
+    lng: 80.9990,
   },
   {
-    place_id: "lucknow-summit-building",
-    name: "Summit Building",
-    location: "Vibhuti Khand",
-    address: "Vibhuti Khand, Gomti Nagar, Lucknow, Uttar Pradesh 226010",
-    lat: 26.8682,
-    lng: 81.0068,
+    place_id: "lucknow-102",
+    name: "Cubbon & Coffee Run Hub",
+    location: "Hazratganj, Lucknow",
+    address: "MG Marg, Hazratganj, Lucknow, Uttar Pradesh 226001",
+    lat: 26.8467,
+    lng: 80.9462,
   },
   {
-    place_id: "lucknow-janeshwar-park",
-    name: "Janeshwar Mishra Park",
-    location: "Gomti Nagar",
-    address: "Gomti Nagar Extension, Lucknow, Uttar Pradesh 226010",
-    lat: 26.8378,
-    lng: 80.9912,
-  },
-  {
-    place_id: "lucknow-phoenix-palassio",
-    name: "Phoenix Palassio",
-    location: "Gomti Nagar Extension",
-    address: "Sector-7, Gomti Nagar Extension, Amar Shaheed Path, Lucknow, Uttar Pradesh 226010",
-    lat: 26.8088,
-    lng: 81.0182,
-  },
-  {
-    place_id: "lucknow-patrakar-puram",
-    name: "Patrakar Puram Market",
-    location: "Gomti Nagar",
-    address: "Patrakar Puram, Vikas Khand, Gomti Nagar, Lucknow, Uttar Pradesh 226010",
-    lat: 26.8488,
-    lng: 80.9972,
-  },
-  {
-    place_id: "lucknow-cherry-tree-hazratganj",
-    name: "Cherry Tree Cafe & Bakery",
-    location: "Hazratganj",
-    address: "Mahatma Gandhi Marg, Hazratganj, Lucknow, Uttar Pradesh 226001",
-    lat: 26.8515,
-    lng: 80.9415,
-  },
-  {
-    place_id: "lucknow-1090-chauraha",
-    name: "1090 Chauraha Street Food Hub",
-    location: "Gomti Nagar",
-    address: "Gomti Nagar Main Rd, Lucknow, Uttar Pradesh 226010",
-    lat: 26.8524,
-    lng: 80.9654,
+    place_id: "lucknow-103",
+    name: "Neon Club Lucknow",
+    location: "Summit Building, Vibhuti Khand",
+    address: "Summit Building, Vibhuti Khand, Gomti Nagar, Lucknow, UP 226010",
+    lat: 26.8550,
+    lng: 81.0020,
   },
 ];
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") || "";
 
   if (!q.trim()) {
-    return NextResponse.json([]);
+    return NextResponse.json(LUCKNOW_POPULAR_VENUES);
   }
 
-  const queryLower = q.toLowerCase().trim();
-  const results: SearchVenueResult[] = [];
+  const queryLower = q.toLowerCase();
+  const results: SearchResult[] = [];
 
-  // 1. Check Google Places API if GOOGLE_MAPS_API_KEY or NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is provided
-  const googleApiKey =
-    process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-
+  // 1. Google Places API Integration (if API key present)
+  const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (googleApiKey) {
     try {
       const gRes = await fetch(
@@ -94,7 +100,7 @@ export async function GET(req: Request) {
       const gData = await gRes.json();
 
       if (gData?.results?.length > 0) {
-        gData.results.slice(0, 5).forEach((place: any, idx: number) => {
+        gData.results.slice(0, 5).forEach((place: GooglePlaceResult, idx: number) => {
           results.push({
             place_id: place.place_id || `g-place-${idx}`,
             name: place.name || q,
@@ -111,7 +117,7 @@ export async function GET(req: Request) {
     }
   }
 
-  // 2. Check Curated Local Lucknow Index (Instant match for places like Paddles & Lattes)
+  // 2. Check Curated Local Lucknow Index
   const localMatches = LUCKNOW_POPULAR_VENUES.filter((item) => {
     const titleMatch = item.name.toLowerCase().includes(queryLower);
     const locMatch = item.location.toLowerCase().includes(queryLower);
@@ -142,7 +148,7 @@ export async function GET(req: Request) {
     const pData = await pRes.json();
 
     if (pData?.features?.length > 0) {
-      pData.features.forEach((feat: any, idx: number) => {
+      pData.features.forEach((feat: PhotonFeatureResult, idx: number) => {
         const props = feat.properties || {};
         const coords = feat.geometry?.coordinates || [80.9462, 26.8467];
         const name = props.name || props.street || q;
@@ -177,7 +183,7 @@ export async function GET(req: Request) {
       const nData = await nRes.json();
 
       if (Array.isArray(nData)) {
-        nData.forEach((item: any, idx: number) => {
+        nData.forEach((item: NominatimResult, idx: number) => {
           const lat = parseFloat(item.lat);
           const lng = parseFloat(item.lon);
           if (!results.some((r) => Math.abs(r.lat - lat) < 0.001)) {
@@ -193,7 +199,7 @@ export async function GET(req: Request) {
         });
       }
     } catch (nErr) {
-      console.warn("Nominatim error:", nErr);
+      console.warn("Nominatim API fallback error:", nErr);
     }
   }
 
