@@ -177,3 +177,29 @@ export async function finalizePaidOrderInternal(
   const rows = (passesData ?? []) as PassRow[];
   return Promise.all(rows.map((row) => hydratePassInternal(row)));
 }
+
+/**
+ * Atomically joins a squad using service role RPC join_squad_atomic.
+ * Server-only.
+ */
+export async function joinSquadInternal(
+  share_code: string,
+  user_id: string
+): Promise<Pass> {
+  const adminClient = createAdminClient();
+
+  const { data: passData, error: rpcError } = await adminClient.rpc(
+    "join_squad_atomic",
+    {
+      p_share_code: share_code,
+      p_user_id: user_id,
+    }
+  );
+
+  if (rpcError || !passData) {
+    throw new Error(rpcError?.message ?? "Failed to join squad");
+  }
+
+  const passRow = (Array.isArray(passData) ? passData[0] : passData) as PassRow;
+  return hydratePassInternal(passRow);
+}

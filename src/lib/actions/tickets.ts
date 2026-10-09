@@ -12,7 +12,7 @@ import type {
   VenueRow,
 } from "@/types/supabase";
 import { randomBytes } from "crypto";
-import { hydratePassInternal, issuePassInternal } from "@/lib/server/tickets-internal";
+import { hydratePassInternal, joinSquadInternal } from "@/lib/server/tickets-internal";
 
 async function requireUser() {
   const supabase = createClient();
@@ -101,50 +101,7 @@ export async function getSquadByCode(code: string) {
  */
 export async function joinSquad(code: string): Promise<Pass> {
   const { user } = await requireUser();
-  const squad = await getSquadByCode(code);
-  if (!squad) throw new Error("Squad not found");
-
-  const adminClient = createAdminClient();
-
-  // Fetch tier details from database
-  const { data: tier } = await adminClient
-    .from("ticket_tiers")
-    .select("*")
-    .eq("id", squad.tier_id)
-    .single();
-
-  if (!tier) throw new Error("Ticket tier for squad not found");
-
-  // Check capacity
-  const currentMembers = squad.member_pass_ids ?? [];
-  const maxMembers = squad.max_members ?? 4;
-  if (currentMembers.length >= maxMembers) {
-    throw new Error("Squad is full");
-  }
-
-  // Check if paid tier: requires verified paid order from creator
-  if (tier.price > 0) {
-    const { data: order } = await adminClient
-      .from("payment_orders")
-      .select("status")
-      .eq("user_id", squad.creator_id)
-      .eq("tier_id", squad.tier_id)
-      .eq("status", "paid")
-      .limit(1)
-      .maybeSingle();
-
-    if (!order) {
-      throw new Error("Cannot join squad: Creator has not completed payment");
-    }
-  }
-
-  // Issue squad member pass server-side
-  return issuePassInternal({
-    event_id: squad.event_id,
-    user_id: user.id,
-    tier_id: squad.tier_id,
-    squad_id: squad.id,
-  });
+  return joinSquadInternal(code, user.id);
 }
 
 /**
