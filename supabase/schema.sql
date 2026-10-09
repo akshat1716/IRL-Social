@@ -714,8 +714,8 @@ GRANT EXECUTE ON FUNCTION issue_pass_atomic(UUID, UUID, UUID, UUID, UUID) TO ser
 REVOKE EXECUTE ON FUNCTION finalize_paid_order(UUID, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION finalize_paid_order(UUID, TEXT) TO service_role;
 
-REVOKE EXECUTE ON FUNCTION staff_can_access_event(UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION staff_can_access_event(UUID) TO service_role;
+REVOKE EXECUTE ON FUNCTION staff_can_access_event(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION staff_can_access_event(UUID) TO authenticated, service_role;
 
 REVOKE EXECUTE ON FUNCTION join_squad_atomic(TEXT, UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION join_squad_atomic(TEXT, UUID) TO service_role;
