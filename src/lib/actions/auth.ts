@@ -35,7 +35,7 @@ export async function getCurrentUser() {
     email: user.email ?? p.email ?? "",
     phone: user.phone || meta.phone || "+91 8545079630",
     name: p.name || meta.name || user.email?.split("@")[0] || "User",
-    role: p.role || meta.role || "user",
+    role: p.role || "user",
     avatar_url: p.avatar_url || meta.avatar_url || null,
     birthday: p.birthday || meta.birthday || "",
     gender: p.gender || meta.gender || "",
@@ -95,7 +95,11 @@ export async function updateProfile(formData: {
   return { success: true };
 }
 
-export async function requestPartnerAccess() {
+/**
+ * Submits a partner access application for admin review.
+ * Does NOT self-promote user role.
+ */
+export async function requestPartnerAccess(message: string = "") {
   const supabase = createClient();
   const {
     data: { user },
@@ -105,33 +109,52 @@ export async function requestPartnerAccess() {
     return { success: false, error: "Authentication required" };
   }
 
-  // Elevate user role safely via admin client
-  const adminClient = createAdminClient();
-
-  const { error: updateMetaError } = await supabase.auth.updateUser({
-    data: { role: "partner" },
-  });
-
-  if (updateMetaError) {
-    return { success: false, error: updateMetaError.message };
-  }
-
-  const { error: profileError } = await adminClient
-    .from("profiles")
-    .update({
-      role: "partner",
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).from("partner_applications").upsert(
+    {
+      user_id: user.id,
+      message,
+      status: "pending",
       updated_at: new Date().toISOString(),
-    })
-    .eq("id", user.id);
+    },
+    { onConflict: "user_id" }
+  );
 
-  if (profileError) {
-    console.error("Profile role escalation error:", profileError.message);
-    return { success: false, error: profileError.message };
+  if (error) {
+    console.error("Partner application error:", error.message);
+    return { success: false, error: error.message };
   }
 
-  revalidatePath("/partner");
-  revalidatePath("/profile");
+  try {
+    revalidatePath("/partner");
+  } catch {
+    // revalidatePath skipped in test environment
+  }
   return { success: true };
+}
+
+/**
+ * Retrieves status of partner application for current user.
+ */
+export async function getPartnerApplicationStatus() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { hasApplication: false, status: null };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
+    .from("partner_applications")
+    .select("status")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  return {
+    hasApplication: !!data,
+    status: (data?.status as "pending" | "approved" | "rejected") ?? null,
+  };
 }
 
 export interface PayoutDetails {

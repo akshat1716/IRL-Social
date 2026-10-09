@@ -33,6 +33,42 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
         Relationships: [];
       };
+      partner_applications: {
+        Row: {
+          id: string;
+          user_id: string;
+          message: string;
+          status: "pending" | "approved" | "rejected";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          message?: string;
+          status?: "pending" | "approved" | "rejected";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["partner_applications"]["Insert"]>;
+        Relationships: [];
+      };
+      event_staff: {
+        Row: {
+          id: string;
+          event_id: string;
+          staff_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          event_id: string;
+          staff_id: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["event_staff"]["Insert"]>;
+        Relationships: [];
+      };
       venues: {
         Row: {
           id: string;
@@ -70,15 +106,22 @@ export interface Database {
           end_time: string;
           capacity: number;
           current_attendees: number;
-          vibe_status: "chill" | "warming_up" | "peak_vibe" | "sold_out";
           is_daytime: boolean;
+          vibe_status: "chill" | "warming_up" | "peak_vibe" | "sold_out";
+          is_matchmaking_enabled: boolean;
+          skill_level: string;
+          equipment_provided: string;
+          max_squad_size: number;
           created_at: string;
-          updated_at: string;
         };
         Insert: Omit<
           Database["public"]["Tables"]["events"]["Row"],
-          "id" | "current_attendees" | "created_at" | "updated_at"
-        > & { id?: string; current_attendees?: number };
+          "id" | "current_attendees" | "vibe_status" | "created_at"
+        > & {
+          id?: string;
+          current_attendees?: number;
+          vibe_status?: "chill" | "warming_up" | "peak_vibe" | "sold_out";
+        };
         Update: Partial<Database["public"]["Tables"]["events"]["Insert"]>;
         Relationships: [];
       };
@@ -116,13 +159,19 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<
-          Database["public"]["Tables"]["payment_orders"]["Row"],
-          "id" | "created_at" | "updated_at"
-        > & {
+        Insert: {
           id?: string;
+          razorpay_order_id: string;
+          user_id: string;
+          event_id: string;
+          tier_id: string;
+          quantity: number;
+          amount_paise: number;
+          squad_mode?: boolean;
           status?: "created" | "paid" | "failed";
           razorpay_payment_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["payment_orders"]["Insert"]>;
         Relationships: [];
@@ -135,16 +184,20 @@ export interface Database {
           creator_id: string;
           share_code: string;
           member_pass_ids: string[];
+          is_public: boolean;
+          skill_level: string;
+          notes: string;
+          max_members: number;
           created_at: string;
-          is_public?: boolean;
-          skill_level?: string | null;
-          notes?: string | null;
-          max_members?: number | null;
         };
         Insert: Omit<
           Database["public"]["Tables"]["squads"]["Row"],
           "id" | "member_pass_ids" | "created_at"
-        > & { id?: string; member_pass_ids?: string[] };
+        > & {
+          id?: string;
+          member_pass_ids?: string[];
+          created_at?: string;
+        };
         Update: Partial<Database["public"]["Tables"]["squads"]["Insert"]>;
         Relationships: [];
       };
@@ -154,24 +207,17 @@ export interface Database {
           event_id: string;
           user_id: string;
           tier_id: string;
+          squad_id: string | null;
+          order_id: string | null;
           qr_code_hash: string;
           status: "valid" | "checked_in" | "cancelled";
           redeemed_amount: number;
-          squad_id: string | null;
-          order_id: string | null;
           created_at: string;
         };
         Insert: Omit<
           Database["public"]["Tables"]["passes"]["Row"],
           "id" | "qr_code_hash" | "created_at"
-        > & {
-          id?: string;
-          qr_code_hash?: string;
-          status?: "valid" | "checked_in" | "cancelled";
-          redeemed_amount?: number;
-          squad_id?: string | null;
-          order_id?: string | null;
-        };
+        > & { id?: string; qr_code_hash?: string };
         Update: Partial<Database["public"]["Tables"]["passes"]["Insert"]>;
         Relationships: [];
       };
@@ -211,9 +257,22 @@ export interface Database {
         };
         Returns: Database["public"]["Tables"]["passes"]["Row"][];
       };
-      staff_can_scan_event: {
+      finalize_paid_order: {
         Args: {
-          p_staff_id: string;
+          p_order_id: string;
+          p_payment_id?: string | null;
+        };
+        Returns: Database["public"]["Tables"]["passes"]["Row"][];
+      };
+      join_squad_atomic: {
+        Args: {
+          p_share_code: string;
+          p_user_id: string;
+        };
+        Returns: Database["public"]["Tables"]["passes"]["Row"][];
+      };
+      staff_can_access_event: {
+        Args: {
           p_event_id: string;
         };
         Returns: boolean;
@@ -224,6 +283,8 @@ export interface Database {
 }
 
 export type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
+export type PartnerApplicationRow = Database["public"]["Tables"]["partner_applications"]["Row"];
+export type EventStaffRow = Database["public"]["Tables"]["event_staff"]["Row"];
 export type VenueRow = Database["public"]["Tables"]["venues"]["Row"];
 export type EventRow = Database["public"]["Tables"]["events"]["Row"];
 export type TicketTierRow = Database["public"]["Tables"]["ticket_tiers"]["Row"];
