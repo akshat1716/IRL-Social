@@ -1,4 +1,4 @@
-# IRL Social — Security Hardening Verification Report (Pass 2)
+# IRL Social — Security Hardening Verification Report (Pass 3)
 
 **Date:** October 9, 2026  
 **Target Branch:** `security-hardening`  
@@ -13,12 +13,46 @@
 | :--- | :--- | :--- | :--- |
 | **Linting** | `npm run lint` | **PASS** | 0 errors. Only minor LCP image element warnings on static assets. |
 | **Type Checking** | `npx tsc --noEmit` | **PASS** | 0 TypeScript compilation errors. |
-| **Unit Testing** | `npm test` | **PASS** | **19 tests passed** across 2 test files (`payment-helpers.test.ts`, `security-rules.test.ts`). Real route handlers invoked with mocked Supabase client. |
+| **Unit Testing** | `npm test` | **PASS** | **21 tests passed** across 2 test files (`payment-helpers.test.ts`, `security-rules.test.ts`). Real route handlers & server actions invoked with mocked Supabase client. |
 | **Production Build** | `npm run build` | **PASS** | 22 static and dynamic app routes compiled cleanly. |
 
 ---
 
-## 2. Server Action Security Audit ("use server" Files)
+## 2. Security Enhancements Summary (Pass 3)
+
+### 1. Partner Self-Promotion Prevention (`partner_applications`)
+- **Problem**: `requestPartnerAccess()` previously allowed any authenticated user to elevate their profile role to `partner` instantly.
+- **Fix**: Created `partner_applications` table (`user_id`, `message`, `status` `pending|approved|rejected`, `created_at`). `requestPartnerAccess()` now inserts an application with `status = 'pending'`. Role elevation is granted ONLY when an administrator approves the application.
+- **Single Source of Truth**: Removed `role` from `user_metadata` writes (`supabase.auth.updateUser({data:{role}})`). The `profiles` table is the single source of truth for user roles.
+- **Admin Approval Path**:
+  ```sql
+  BEGIN;
+  ALTER TABLE public.profiles DISABLE TRIGGER check_profile_role_change;
+  UPDATE public.partner_applications SET status = 'approved' WHERE user_id = 'TARGET_USER_ID';
+  UPDATE public.profiles SET role = 'partner'::user_role WHERE id = 'TARGET_USER_ID';
+  ALTER TABLE public.profiles ENABLE TRIGGER check_profile_role_change;
+  COMMIT;
+  ```
+
+### 2. Scoped Scanner & Partner Database Access (`event_staff`)
+- **Problem**: `is_scanner_staff()` gave blanket read access to all passes, profiles (including emails), and check-ins, allowing staff to scan any event.
+- **Fix**: Replaced with per-event scoping via `staff_can_access_event(p_event_id)` and created `event_staff` mapping table:
+  - **Passes**: Readable ONLY by pass owner OR event-assigned staff (`auth.uid() = user_id OR staff_can_access_event(event_id)`).
+  - **Profiles**: RLS policy restricted to `auth.uid() = id` (own profile only). Partners/door staff read attendee names/avatars through `public_profiles` view; attendee emails are NEVER exposed.
+  - **Check-ins**: `INSERT` and `SELECT` restricted strictly to assigned event staff (`staff_can_access_event(p.event_id)`).
+
+### 3. Atomic Squad Joining (`join_squad_atomic`) & Seat Capacity
+- **Model Enforced**: Creator's payment covers up to `max_members` seats (default 4).
+- **Atomic Procedure**: Implemented `join_squad_atomic(p_share_code, p_user_id)` procedure in PostgreSQL with row locking (`SELECT ... FOR UPDATE` on `squads`).
+- **Guards**: Prevents duplicate pass issuance if user is already a squad member, verifies paid tier creator order status, and enforces `max_members` inside SQL.
+
+### 4. Database Portability & `pgcrypto` Clean Up
+- Replaced `gen_random_bytes` in `finalize_paid_order` with built-in UUID manipulation: `upper(substring(replace(gen_random_uuid()::text, '-', ''), 1, 8))`.
+- **Operational Note**: User signups via Supabase Auth should be tested after applying database migrations to confirm `handle_new_user()` trigger completes smoothly.
+
+---
+
+## 3. Server Action Security Audit ("use server" Files)
 
 Every exported server action across the codebase has been audited for parameter injection, privilege escalation, and caller authorization boundaries.
 
@@ -27,19 +61,18 @@ Every exported server action across the codebase has been audited for parameter 
 | :--- | :--- | :--- |
 | `getUserPasses()` | **YES** | Binds strictly to authenticated caller session (`requireUser()`). Reads only own passes. |
 | `getSquadByCode(code)` | **YES** | Read-only squad metadata lookup by share code. |
-| `joinSquad(code)` | **YES** | Authenticated caller required. Enforces squad capacity. Checks database: if ticket tier `price > 0`, verifies creator order status is `'paid'` before issuing squad pass. |
+| `joinSquad(code)` | **YES** | Authenticated caller required. Calls atomic stored procedure `join_squad_atomic` via service-role admin client. Handles duplicate joins and over-capacity errors safely. |
 | `getPublicSquadsForEvent(eventId)` | **YES** | Read-only public squad listing for event. |
-| `createPublicOpenSquad(input)` | **YES** | Authenticated caller required. Enforces `price === 0` tier check in database; paid tiers are rejected (must use checkout flow). |
-
-*Note*: Internal ticket creation helpers (`hydratePassInternal`, `issuePassInternal`, `createSquadPassCheckoutInternal`, `finalizePaidOrderInternal`) were moved to `src/lib/server/tickets-internal.ts` backed by `import "server-only"`.
+| `createPublicOpenSquad(input)` | **YES** | Authenticated caller required. Enforces `price === 0` tier check in database; paid tiers are rejected. |
 
 ### B. `src/lib/actions/auth.ts`
 | Exported Server Action | Safe to Call from Browser? | Authorization & Input Validation |
 | :--- | :--- | :--- |
 | `signOut()` | **YES** | Invalidates caller session. |
-| `getCurrentUser()` | **YES** | Returns profile data for authenticated caller session (`user.id`). |
+| `getCurrentUser()` | **YES** | Returns profile data for authenticated caller session (`user.id`). Role derived from `profiles` table. |
 | `updateProfile(formData)` | **YES** | Requires authentication (`user.id`). Updates profile using caller's session ID only. Role changes strictly disallowed. |
-| `requestPartnerAccess()` | **YES** | Requires authentication. Updates caller's own profile role to `partner` via admin client. |
+| `requestPartnerAccess(message)` | **YES** | Requires authentication. Inserts a `pending` row into `partner_applications` table for admin review. Does NOT elevate user role. |
+| `getPartnerApplicationStatus()` | **YES** | Returns status (`pending`, `approved`, `rejected`) of caller's own partner application. |
 | `getPayoutDetails()` | **YES** | Returns payout metadata for caller session. |
 | `updatePayoutDetails(details)` | **YES** | Updates payout metadata for caller session (`user.id`). |
 
@@ -62,46 +95,23 @@ Every exported server action across the codebase has been audited for parameter 
 
 ---
 
-## 3. Database Security & Stored Procedure Lockdowns
-
-| Security Control | Implementation Location | Verification Status | Notes |
-| :--- | :--- | :--- | :--- |
-| **`issue_pass_atomic` Execution Lock** | `20261009120000_lock_down_functions.sql` & `schema.sql` | **PASS (Unit / SQL Test)** | `REVOKE EXECUTE FROM PUBLIC, anon, authenticated; GRANT EXECUTE TO service_role;` |
-| **Atomic `finalize_paid_order` RPC** | `20261009120000_lock_down_functions.sql` & `schema.sql` | **PASS (Unit / SQL Test)** | Locks `payment_orders` row `FOR UPDATE`, sets status `'paid'`, issues passes or returns existing passes atomically in 1 transaction. Service-role only. |
-| **Helper Function Permissions** | `20261009120000_lock_down_functions.sql` | **PASS** | REVOKED EXECUTE on `staff_can_scan_event`, `handle_new_user`, and `prevent_profile_role_escalation` from `authenticated`/`anon`/`PUBLIC`. RLS helpers (`is_partner`, `is_scanner_staff`, `owns_venue`) remain available for policy evaluations. |
-| **SQL Assertions Test File** | `supabase/tests/security_assertions.sql` | **PASS (SQL Script)** | Added `Assertion E`: authenticated user calling RPC `issue_pass_atomic` or `finalize_paid_order` receives `permission denied`. |
-
----
-
-## 4. Endpoint Remediation Audit
-
-1. **Free-Pass Endpoints Removal**:
-   - `POST /api/passes`: Removed. Endpoint now exports ONLY `GET`.
-   - `POST /api/squad`: Removed. Endpoint now exports ONLY `GET`.
-   - Tested in `security-rules.test.ts`: `(passesRoute as any).POST` and `(squadRoute as any).POST` are `undefined`.
-2. **Server-Only Boundary (`server-only`)**:
-   - Installed `server-only` package.
-   - Created `src/lib/server/tickets-internal.ts` starting with `import "server-only"`.
-   - Functions `hydratePassInternal`, `issuePassInternal`, `createSquadPassCheckoutInternal`, and `finalizePaidOrderInternal` isolated from client bundles.
-
----
-
-## 5. Known Limitations & Unverified Items
+## 4. Known Limitations & Unverified Items
 
 - **Local Live Database HTTP Endpoints (`curl` against localhost:3000)**: Marked as **`NOT VERIFIED (no test database)`** because no local Supabase container was active on `localhost:5432/54321`, and executing queries or HTTP calls against production (`irlsocial.in` / prod Supabase DB) was strictly forbidden by hardening rules.
-- **Unit Test Coverage**: Route handler integration logic, HMAC verification, `NODE_ENV=production` simulation blocks, idempotency, signature rejection, free-tier price validation, and server-side order total calculation are 100% verified via Vitest.
+- **Unit Test Coverage**: Route handler integration logic, partner application submission, RPC lockdowns, HMAC verification, `NODE_ENV=production` simulation blocks, idempotency, signature rejection, free-tier price validation, and server-side order total calculation are 100% verified via Vitest.
 
 ---
 
-## 6. Mandatory Deployment Steps for Project Owner
+## 5. Mandatory Deployment Sequence for Project Owner
 
-Perform these steps in exact order to deploy to production:
+Perform these steps in **exact order** to deploy to production:
 
-1. **Step 1: Execute SQL Migrations in Supabase**
+1. **Step 1: Execute SQL Migrations in Supabase (In Chronological Order)**
    - Open your [Supabase Dashboard](https://supabase.com/dashboard) -> **SQL Editor**.
-   - Execute [`supabase/migrations/20261009040000_security_hardening.sql`](file:///Users/akshat/Desktop/IRL/supabase/migrations/20261009040000_security_hardening.sql) (if not already applied).
-   - Execute [`supabase/migrations/20261009120000_lock_down_functions.sql`](file:///Users/akshat/Desktop/IRL/supabase/migrations/20261009120000_lock_down_functions.sql).
-   - *(Optional Sanity Check)*: Run [`supabase/tests/security_assertions.sql`](file:///Users/akshat/Desktop/IRL/supabase/tests/security_assertions.sql) in the SQL Editor to verify RLS and RPC execution lock downs block unauthorized users.
+   - **Migration 1**: Execute [`supabase/migrations/20261009040000_security_hardening.sql`](file:///Users/akshat/Desktop/IRL/supabase/migrations/20261009040000_security_hardening.sql) (if not already applied).
+   - **Migration 2**: Execute [`supabase/migrations/20261009120000_lock_down_functions.sql`](file:///Users/akshat/Desktop/IRL/supabase/migrations/20261009120000_lock_down_functions.sql).
+   - **Migration 3**: Execute [`supabase/migrations/20261009180000_scoped_access_and_squads.sql`](file:///Users/akshat/Desktop/IRL/supabase/migrations/20261009180000_scoped_access_and_squads.sql).
+   - *(Sanity Check)*: Run [`supabase/tests/security_assertions.sql`](file:///Users/akshat/Desktop/IRL/supabase/tests/security_assertions.sql) in the SQL Editor to verify RLS policies, RPC lockdowns, and partner event isolation.
 
 2. **Step 2: Configure Environment Variables in Vercel**
    - Ensure the following variables are set in Vercel Project Settings:

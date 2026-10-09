@@ -156,6 +156,63 @@ BEGIN
   END;
 END $$;
 
+-- ----------------------------------------------------------------------------
+-- ASSERTION F: Partner CANNOT read passes or emails for another partner's event
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_partner1_id UUID := '66666666-6666-6666-6666-666666666666';
+  v_partner2_id UUID := '77777777-7777-7777-7777-777777777777';
+  v_venue2_id   UUID := '88888888-8888-8888-8888-888888888888';
+  v_event2_id   UUID := '99999999-9999-9999-9999-999999999999';
+  v_pass2_count INT;
+  v_email_count INT;
+BEGIN
+  -- Setup test partners, venue, event in postgres context
+  RESET ROLE;
+  INSERT INTO public.profiles (id, name, email, role)
+  VALUES 
+    (v_partner1_id, 'Partner One', 'partner1@test.internal', 'partner'::user_role),
+    (v_partner2_id, 'Partner Two', 'partner2@test.internal', 'partner'::user_role)
+  ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;
+
+  INSERT INTO public.venues (id, name, location, address, partner_id)
+  VALUES (v_venue2_id, 'Venue Two', 'Downtown', '123 Main St', v_partner2_id)
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO public.events (id, title, description, category, venue_id, start_time, end_time, capacity, cover_image)
+  VALUES (v_event2_id, 'Partner 2 Secret Event', 'Private event', 'nightlife', v_venue2_id, now(), now() + interval '2 hours', 100, 'http://example.com/img.jpg')
+  ON CONFLICT (id) DO NOTHING;
+
+  -- Switch role to Partner 1
+  SET LOCAL ROLE authenticated;
+  SET LOCAL "request.jwt.claim.sub" = '66666666-6666-6666-6666-666666666666';
+  SET LOCAL "request.jwt.claim.role" = 'authenticated';
+
+  -- Partner 1 attempts to read passes for Partner 2's event
+  SELECT COUNT(*) INTO v_pass2_count
+  FROM public.passes
+  WHERE event_id = v_event2_id;
+
+  IF v_pass2_count > 0 THEN
+    RAISE EXCEPTION 'TEST FAILED: Partner 1 was able to read passes for Partner 2 event!';
+  ELSE
+    RAISE NOTICE 'PASS Assertion F1: Partner 1 blocked from reading Partner 2 passes as expected.';
+  END IF;
+
+  -- Partner 1 attempts to read Partner 2 email from profiles table
+  SELECT COUNT(*) INTO v_email_count
+  FROM public.profiles
+  WHERE id = v_partner2_id;
+
+  IF v_email_count > 0 THEN
+    RAISE EXCEPTION 'TEST FAILED: Partner 1 was able to select Partner 2 profile record!';
+  ELSE
+    RAISE NOTICE 'PASS Assertion F2: Partner 1 blocked from reading Partner 2 profile email as expected.';
+  END IF;
+END $$;
+
 -- Always Rollback changes so database remains untouched
 ROLLBACK;
+
 

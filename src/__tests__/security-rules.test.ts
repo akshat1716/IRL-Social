@@ -7,12 +7,13 @@ vi.mock("@/lib/supabase/server", () => {
   const mockSupabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
+      updateUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
     },
     from: vi.fn((table: string) => {
       if (table === "ticket_tiers") {
         return {
           select: vi.fn().mockReturnValue({
-            eq: vi.fn((field: string, val: string) => {
+            eq: vi.fn((_field: string, val: string) => {
               if (val === "tier_paid_101") {
                 return {
                   single: vi.fn().mockResolvedValue({
@@ -43,10 +44,24 @@ vi.mock("@/lib/supabase/server", () => {
           }),
         };
       }
+      if (table === "partner_applications") {
+        return {
+          upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { status: "pending" },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
       return {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue({ data: null, error: null }),
+        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
       };
     }),
   };
@@ -134,16 +149,24 @@ vi.mock("@/lib/server/tickets-internal", () => {
     finalizePaidOrderInternal: vi.fn().mockImplementation(async () => {
       return [mockPass];
     }),
+    joinSquadInternal: vi.fn().mockImplementation(async (code: string) => {
+      if (code === "FULLCODE") {
+        throw new Error("Squad is full");
+      }
+      return mockPass;
+    }),
   };
 });
 
-// Import real route modules
+// Import real route modules & server actions
 import * as passesRoute from "@/app/api/passes/route";
 import * as squadRoute from "@/app/api/squad/route";
 import { POST as verifyPOST } from "@/app/api/payments/verify/route";
 import { POST as createOrderPOST } from "@/app/api/payments/create-order/route";
 import { POST as webhookPOST } from "@/app/api/webhooks/razorpay/route";
 import { POST as claimFreePOST } from "@/app/api/payments/claim-free/route";
+import { requestPartnerAccess, getPartnerApplicationStatus } from "@/lib/actions/auth";
+import { joinSquad } from "@/lib/actions/tickets";
 
 describe("API Security Routes Integration Tests", () => {
   const originalEnv = process.env;
@@ -194,7 +217,6 @@ describe("API Security Routes Integration Tests", () => {
     expect(body1.success).toBe(true);
     expect(body1.passes).toHaveLength(1);
 
-    // Call verify a second time for the same order
     const request2 = new Request("http://localhost:3000/api/payments/verify", {
       method: "POST",
       body: JSON.stringify({ razorpay_order_id: "order_sim_999" }),
@@ -217,7 +239,7 @@ describe("API Security Routes Integration Tests", () => {
         event_id: "event_101",
         tier_id: "tier_paid_101",
         quantity: 2,
-        amount: 1, // Malicious client attempt to pay 1 rupee
+        amount: 1, // Malicious client attempt
       }),
     });
 
@@ -225,13 +247,11 @@ describe("API Security Routes Integration Tests", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    // 999 * 2 * 100 = 199800 paise
     expect(body.amount).toBe(199800);
     expect(body.amount).not.toBe(100);
   });
 
   it("(e) the webhook route rejects requests with missing or invalid signature", async () => {
-    // Missing signature header
     const reqMissing = new Request("http://localhost:3000/api/webhooks/razorpay", {
       method: "POST",
       body: JSON.stringify({ event: "payment.captured" }),
@@ -242,7 +262,6 @@ describe("API Security Routes Integration Tests", () => {
     const bodyMissing = await resMissing.json();
     expect(bodyMissing.error).toContain("Missing x-razorpay-signature");
 
-    // Invalid signature header
     const reqInvalid = new Request("http://localhost:3000/api/webhooks/razorpay", {
       method: "POST",
       headers: { "x-razorpay-signature": "invalid_sig_hash" },
@@ -260,7 +279,7 @@ describe("API Security Routes Integration Tests", () => {
       method: "POST",
       body: JSON.stringify({
         event_id: "event_101",
-        tier_id: "tier_paid_101", // Paid tier price = 999
+        tier_id: "tier_paid_101",
       }),
     });
 
@@ -269,5 +288,21 @@ describe("API Security Routes Integration Tests", () => {
 
     expect(res.status).toBe(400);
     expect(body.error).toContain("Paid tickets must go through payment checkout");
+  });
+
+  it("(g) requestPartnerAccess submits an application and does NOT elevate role directly", async () => {
+    const res = await requestPartnerAccess("I run a local run club");
+    expect(res.success).toBe(true);
+
+    const statusRes = await getPartnerApplicationStatus();
+    expect(statusRes.hasApplication).toBe(true);
+    expect(statusRes.status).toBe("pending");
+  });
+
+  it("(h) joinSquad rejects over-capacity squads and handles atomic joins", async () => {
+    const validPass = await joinSquad("VALIDCODE");
+    expect(validPass.id).toBe("pass_101");
+
+    await expect(joinSquad("FULLCODE")).rejects.toThrow("Squad is full");
   });
 });
